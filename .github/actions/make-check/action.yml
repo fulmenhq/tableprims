@@ -43,6 +43,7 @@ runs:
       env:
         # Python's default encoding is cp1252 on Windows; keep reads UTF-8 everywhere.
         PYTHONUTF8: "1"
+        GITHUB_TOKEN: ""
       run: make check-platform PYTHON=python
     - name: Working tree unchanged by the gate
       shell: bash

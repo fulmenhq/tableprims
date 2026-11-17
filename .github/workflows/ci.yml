@@ -196,6 +196,8 @@ jobs:
         with:
           persist-credentials: false
       - name: actionlint
+        env:
+          GITHUB_TOKEN: ""
         run: |
           actionlint --version
           actionlint -color
