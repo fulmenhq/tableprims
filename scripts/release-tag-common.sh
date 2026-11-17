@@ -360,7 +360,7 @@ tag_signing_git() {
 	git -c gpg.format=openpgp -c gpg.program=gpg -c gpg.openpgp.program=gpg "$@"
 }
 
-# PDR-0008 §2.10: the signing command pins gpg.format, gpg.program and
+# 3leaps/crucible PDR-0008 §2.10: the signing command pins gpg.format, gpg.program and
 # gpg.openpgp.program on its own command line; a configured value the pin
 # overrides is reported, and the step stops only if the pin would not take
 # effect.

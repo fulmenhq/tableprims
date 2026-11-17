@@ -257,7 +257,7 @@ SH
 chmod +x "$fixture_dir/bad-git-bin/git"
 expect_fail_with 'failed to enumerate repository worktrees' call tag_key_home PATH="$fixture_dir/bad-git-bin:$PATH" TABLEPRIMS_GPG_HOMEDIR="$fixture_dir/ext-gpg"
 
-# PDR-0008 §2.10: signing command pins gpg.format=openpgp, gpg.program=gpg and
+# 3leaps/crucible PDR-0008 §2.10: signing command pins gpg.format=openpgp, gpg.program=gpg and
 # gpg.openpgp.program=gpg, overriding repo/global config (which is reported, not refused).
 git -C "$repo" config gpg.format ssh
 git -C "$repo" config gpg.program /nonexistent/wrapper
