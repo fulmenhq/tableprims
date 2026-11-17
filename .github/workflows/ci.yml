@@ -1,80 +1,201 @@
+# tableprims CI
+#
+# Linux cells (x86_64 and aarch64) run the full `make check` gate inside the
+# digest-pinned `ghcr.io/fulmenhq/goneat-tools-runner-glibc` image (which
+# provides goneat v0.6.8, cargo-deny, actionlint, Python 3 + PyYAML, jq, and
+# git): the workspace builds, lints and tests at the MSRV, the built
+# `tablebolt` binary passes its smoke run, the leaf-dependency rule holds,
+# the workflow digests match their pin, and cargo-deny passes (licenses,
+# sources, bans, advisories).
+#
+# Native macOS and Windows cells run `make check-platform` via
+# `.github/actions/make-check` with zero external binary downloads.
+#
+# Hosted (every push and PR):
+#   ubuntu-latest   x86_64-unknown-linux-gnu  (goneat-tools-runner-glibc:v0.5.15)
+#   macos-15        aarch64-apple-darwin
+#   windows-latest  x86_64-pc-windows-msvc
+# Organization larger runners (same-repo only, so fork PRs skip these cells and
+# they cannot be required checks):
+#   ubuntu-latest-arm64-s   aarch64-unknown-linux-gnu  (goneat-tools-runner-glibc:v0.5.15)
+#   windows-latest-arm64-s  aarch64-pc-windows-msvc
+#
+# Third-party actions and container images are pinned by digest/commit. Custom
+# runner labels are declared in .github/actionlint.yaml.
 name: CI
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
-env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-Dwarnings"
 permissions:
   contents: read
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.88.0
 jobs:
-  lint:
-    name: Format and Clippy
-    runs-on: ubuntu-24.04
+  check-linux:
+    name: check (x86_64-unknown-linux-gnu)
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/fulmenhq/goneat-tools-runner-glibc:v0.5.15@sha256:8c6324556e0e8c951b0ad2225f1cb87fad13445b6dcbc83717ace41c6959608e
+      options: --user 1001:1001
+    env:
+      HOME: /github/home
+      RUSTUP_HOME: /github/home/.rustup
+      CARGO_HOME: /github/home/.cargo
+      PYTHONUTF8: "1"
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Install Rust
-        uses: ./.github/actions/setup-rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772  # reviewed 2026-08-04 commit
         with:
-          toolchain: 1.98.1
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
-      - name: Check formatting
-        run: make fmt-check
-      - name: Run Clippy
-        run: make lint
-      - name: Check version files
-        run: make version-check
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+      - name: Verify runner and toolchains
+        run: |
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = "1001:1001"
+          host=$(rustc -vV | awk '/^host:/{print $2}')
+          test "${host}" = "x86_64-unknown-linux-gnu"
+          rustc --version | grep "^rustc ${RUST_TOOLCHAIN} "
+          grep -qx "rust-version = \"${RUST_TOOLCHAIN}\"" Cargo.toml
+          goneat version | grep '^Module: v0\.6\.8$'
+          cargo deny --version
+          python3 --version
+          python3 -B -E -c 'import yaml'
+      - name: make check
+        env:
+          GITHUB_TOKEN: ""
+        run: make check PYTHON=python3
+      - name: Working tree unchanged by the gate
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+  check:
+    name: check (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust
-        uses: ./.github/actions/setup-rust
+      - name: make check-platform
+        uses: ./.github/actions/make-check
         with:
-          toolchain: 1.98.1
-      - name: Run tests
-        run: cargo test --locked --workspace
-      # The Windows runner does not provide GNU Make. The test suite above runs
-      # the built binary and checks its exit codes on every platform.
-      - name: Run tablebolt smoke
-        if: runner.os != 'Windows'
-        run: make smoke
-  msrv:
-    name: Minimum Rust version
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          persist-credentials: false
-      - name: Install Rust
-        uses: ./.github/actions/setup-rust
-        with:
-          toolchain: 1.88.0
-      - name: Run tests
-        run: cargo test --locked --workspace
-  deny:
-    name: License and advisory check
-    runs-on: ubuntu-24.04
+          target: ${{ matrix.target }}
+          rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
+  check-linux-arm64:
+    name: check (aarch64-unknown-linux-gnu)
+    # Same-repo only: fork PRs cannot use organization larger runners.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest-arm64-s
     container:
-      image: ghcr.io/fulmenhq/goneat-tools-runner-glibc@sha256:616a4b5361d2cf7d32ac32496d58e9c288660d5606f0a27efdbf56e3a462ab2d
-      options: --user root
+      image: ghcr.io/fulmenhq/goneat-tools-runner-glibc:v0.5.15@sha256:8c6324556e0e8c951b0ad2225f1cb87fad13445b6dcbc83717ace41c6959608e
+      options: --user 1001:1001
+    env:
+      HOME: /github/home
+      RUSTUP_HOME: /github/home/.rustup
+      CARGO_HOME: /github/home/.cargo
+      PYTHONUTF8: "1"
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Run cargo-deny
-        run: cargo deny --locked check
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772  # reviewed 2026-08-04 commit
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+      - name: Verify runner and toolchains
+        run: |
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = "1001:1001"
+          host=$(rustc -vV | awk '/^host:/{print $2}')
+          test "${host}" = "aarch64-unknown-linux-gnu"
+          rustc --version | grep "^rustc ${RUST_TOOLCHAIN} "
+          grep -qx "rust-version = \"${RUST_TOOLCHAIN}\"" Cargo.toml
+          goneat version | grep '^Module: v0\.6\.8$'
+          cargo deny --version
+          python3 --version
+          python3 -B -E -c 'import yaml'
+      - name: make check
+        env:
+          GITHUB_TOKEN: ""
+        run: make check PYTHON=python3
+      - name: Working tree unchanged by the gate
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+  check-arm64:
+    name: check (${{ matrix.target }})
+    # Same-repo only: fork PRs cannot use organization larger runners.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest-arm64-s
+            target: aarch64-pc-windows-msvc
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: make check-platform
+        uses: ./.github/actions/make-check
+        with:
+          target: ${{ matrix.target }}
+          rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
+  workflow-lint:
+    name: workflow-lint
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/fulmenhq/goneat-tools-runner-glibc:v0.5.15@sha256:8c6324556e0e8c951b0ad2225f1cb87fad13445b6dcbc83717ace41c6959608e
+      options: --user 1001:1001
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: |
+          actionlint --version
+          actionlint -color

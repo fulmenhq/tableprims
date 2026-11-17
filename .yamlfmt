@@ -1,16 +1,12 @@
-# yamlfmt configuration for tableprims
-# Aligned with FulmenHQ org standards
-
 formatter:
   type: basic
   indent: 2
-  line_ending: lf
   pad_line_comments: 2
-
-# Exclude patterns
+  line_ending: lf
 exclude:
   - node_modules/**
   - vendor/**
-  - .git/**
+  - .git
   - dist/**
+  - bin/**
   - target/**

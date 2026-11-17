@@ -27,9 +27,23 @@ messages, branches and PR text as permanent public content.
 
 ## Checks
 
-Run `make check` before committing and `make prepush` before publication.
-`make prepush` adds the dependency license and advisory check and the minimum
-supported Rust version build.
+Run `make check` before committing, `make prepush` before pushing and
+`make pr-final` before opening or updating a PR.
+
+- `make check` is everything CI runs on one host: formatting, Clippy, tests,
+  the `tablebolt` smoke run, the leaf-dependency rule (`make deps-check`), the
+  content check, version sites, workflow digest pins and cargo-deny.
+- `make prepush` adds the minimum supported Rust version build
+  (`make msrv-check`), YAML and workflow lint, the tool controls and the
+  public-surface scan, which is skipped when no catalog is configured.
+- `make pr-final` requires the public-surface scan, including the PR title
+  and body.
+
+tableprims is a leaf: it depends on no other prim. Change the version only
+through `make version-set`, `make version-patch`, `make version-minor` or
+`make version-major`. A change to a workflow or local action updates
+`config/release/release-workflow.sha256` in the same change. Release steps are
+in `RELEASE_CHECKLIST.md`; no release has been made.
 
 Use the public attribution footer on commits and PR bodies:
 

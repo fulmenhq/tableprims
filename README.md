@@ -47,15 +47,19 @@ published.
 
 ## Development
 
-Requires Rust 1.88.0 or newer and Make.
+Requires Rust 1.88.0 or newer, Make and Python 3.11 or newer.
 
 ```sh
-make check      # format check, lint, tests, CLI smoke, version check
-make deny       # license, advisory and source checks (cargo-deny)
-make msrv       # build and test on the minimum supported Rust version
+make check-platform  # format check, lint, tests, CLI smoke, dependency, content and version checks
+make check           # everything CI runs: adds workflow digest pins (PyYAML) and cargo-deny
+make prepush         # adds the MSRV build, YAML and workflow lint, and the tool controls
+make help            # every target
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). The release
+process is in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) and the release
+trust model in [docs/security/README.md](docs/security/README.md); no release
+has been made.
 
 ## License
 
