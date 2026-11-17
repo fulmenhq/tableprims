@@ -1,0 +1,11 @@
+/target/
+/dist/
+/bin/
+/.env
+/.env.*
+.DS_Store
+/AGENTS.local.md
+*.local.yaml
+*.local.yml
+*.local.json
+*.local.toml

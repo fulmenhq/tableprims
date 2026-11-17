@@ -1,0 +1,22 @@
+# .fulmen/repo.yaml: what this repo claims to be. Written against the
+# repository-classes standard; verified by manual convention review until the
+# planned contract:taxonomy/v0/repo-declaration.schema.json schema and checker land.
+schema: "contract:taxonomy/v0/repo-declaration.schema.json"
+class: prims
+profile: B  # parallel pure-Go and Rust implementations sharing one contract
+profile_status: bootstrapping  # operating tree: Rust (named in README)
+leaf: true  # depends on no other prim
+category: library
+env_prefix: TABLEBOLT_
+umbrella_prefix: null
+surfaces: [library, cli]
+bindings:
+  rust: planned  # tableprims (crates.io); first implementation
+  go: planned  # github.com/fulmenhq/tableprims (in-tree pure-Go twin, CGO_ENABLED=0)
+  typescript: planned  # from the Rust tree
+  python: planned  # from the Rust tree
+target_registries: [crates_io, go_proxy, npm, pypi]
+extensions:
+  - id: cli-binary-name
+    scope: cli
+    reason: "the tableprims-cli package builds a binary named tablebolt; it is a thin consumer of the library"
