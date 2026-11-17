@@ -6,6 +6,8 @@
 //! [`conversions`] returns an empty list until an adapter is implemented and
 //! tested. Callers must treat an absent conversion as unsupported.
 
+pub mod exact;
+
 /// Version of this library.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
