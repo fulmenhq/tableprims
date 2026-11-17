@@ -2,7 +2,9 @@
 
 //! Runs the built `tablebolt` binary and checks its resolved behaviour.
 
-use std::process::{Command, Output, Stdio};
+#[cfg(unix)]
+use std::process::Stdio;
+use std::process::{Command, Output};
 
 use serde_json::Value;
 
