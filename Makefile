@@ -41,9 +41,10 @@ prepush: check msrv-check lint-yaml lint-workflows deps-check-test doctor-test s
 
 # Before opening or updating a PR: everything CI runs, plus the maintainer's
 # public-surface scan, which is required here, including the PR title and body
-# in the file named by TABLEPRIMS_SURFACE_PR_TEXT.
+# in the file named by TABLEPRIMS_SURFACE_PR_TEXT. The scope is fixed here so
+# an inherited release scope cannot waive the PR text.
 pr-final: check ## Before opening or updating a PR: check plus the required surface scan
-	@TABLEPRIMS_SURFACE_SCAN_REQUIRED=1 PYTHON=$(PYTHON) scripts/surface-scan.sh
+	@TABLEPRIMS_SURFACE_SCAN_REQUIRED=1 TABLEPRIMS_SURFACE_SCOPE=pr PYTHON=$(PYTHON) scripts/surface-scan.sh
 	@echo "[ok] pr-final"
 
 # The public-surface scan uses limensafe with a maintainer catalog named by
@@ -65,6 +66,7 @@ workflow-pin: ## Every workflow and local action matches its reviewed digest and
 
 checklist-targets: ## Every make target named in RELEASE_CHECKLIST.md exists
 	@scripts/checklist-targets.sh
+	@scripts/checklist-targets.test.sh
 
 release-tooling-test: ## Controls for the release tooling (synthetic; no keys or credentials)
 	@PYTHON=$(PYTHON) scripts/release-workflow-pin.test.sh
