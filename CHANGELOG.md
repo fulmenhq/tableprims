@@ -30,6 +30,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Library module `json`: a strict reader for small JSON documents that
   refuses repeated object keys, unpaired surrogates and any number other than
   a plain non-negative integer, under a nesting depth limit.
+- Library module `documents`: schema and policy documents as strict JSON
+  objects with a format identifier. Unknown members are refused at every
+  depth. A policy names the exact-number representation, per-column
+  quantization, the destination sheet and optional limits.
 - Build, format, lint, test, dependency and minimum-Rust-version checks.
 - `make check-platform` as the native gate: formatting, Clippy, tests, the
   `tablebolt` smoke run, the leaf-dependency rule, a content check for local
