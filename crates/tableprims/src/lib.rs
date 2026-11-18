@@ -7,6 +7,7 @@
 //! tested. Callers must treat an absent conversion as unsupported.
 
 pub mod exact;
+pub mod table;
 
 /// Version of this library.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
