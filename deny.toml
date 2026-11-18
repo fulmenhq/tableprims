@@ -32,17 +32,30 @@ registries = []
 
 [bans]
 multiple-versions = "warn"
-wildcards = "allow"
+wildcards = "deny"
 highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
 allow = []
 deny = [
     # Conversion runs offline: no network clients.
+    # Bans match exact crate names, so related crates are listed separately.
     { name = "reqwest" },
     { name = "hyper" },
+    { name = "hyper-util" },
+    { name = "hyper-rustls" },
+    { name = "hyper-tls" },
     { name = "ureq" },
+    { name = "isahc" },
+    { name = "attohttpc" },
+    { name = "minreq" },
+    { name = "surf" },
     { name = "curl" },
+    { name = "curl-sys" },
+    { name = "tungstenite" },
+    { name = "tokio-tungstenite" },
+    { name = "git2" },
+    { name = "libgit2-sys" },
     { name = "openssl" },
     { name = "openssl-sys" },
 ]

@@ -13,3 +13,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `tablebolt version` and `tablebolt capabilities`, each with `--json`. The
   capability list is empty: no conversion is implemented.
 - Build, format, lint, test, dependency and minimum-Rust-version checks.
+- `make check-platform` as the native gate: formatting, Clippy, tests, the
+  `tablebolt` smoke run, the leaf-dependency rule, a content check for local
+  paths, keys and tokens, and version sites. CI runs it on macOS and Windows
+  through a local composite action.
+- `make check` as the full gate CI runs on Linux: `check-platform` plus
+  workflow digest pins, release tooling controls and cargo-deny.
+- `make prepush` adds the minimum-Rust-version build, YAML and workflow lint
+  and tool controls to `check`. `make pr-final` adds a required
+  public-surface scan, including the PR title and body, to `check`.
+- `VERSION` as the single source of truth, with `make version-set`,
+  `version-patch`, `version-minor` and `version-major`.
+- Release tag tooling and its controls: committed public signing pins and
+  fingerprint anchors, a pinned tagger identity, signed-tag creation and
+  verification, and a release checklist. No release has been made.
+
+### Changed
+
+- CI runs at the minimum supported Rust version on Linux x86_64 and aarch64,
+  macOS arm64 and Windows x86_64 and aarch64; `make msrv` is now
+  `make msrv-check`.

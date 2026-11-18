@@ -15,18 +15,31 @@ typed contract and independently derived expected results.
 
 ## Checks
 
-Install Rust 1.88.0 or newer and Make, then run:
+Install Rust 1.88.0 or newer, Make, Git and Python 3.11 or newer, then run:
 
 ```sh
-make check
+make check-platform
 ```
 
 This checks formatting, runs Clippy with warnings denied, runs the tests, runs
-the built `tablebolt` binary and confirms `VERSION` matches `Cargo.toml`.
+the built `tablebolt` binary, and checks the leaf-dependency rule, tracked
+files for local paths, keys and tokens, and that every version site matches
+`VERSION`.
 
-Before pushing, run `make prepush`. It adds `make deny`, which needs
-[cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and `make msrv`,
-which needs the Rust 1.88.0 toolchain (`rustup toolchain install 1.88.0`).
+`make check` is everything CI runs on one host. It adds the workflow digest
+pins, which need [PyYAML](https://pyyaml.org/), and `make deny`, which needs
+[cargo-deny](https://github.com/EmbarkStudios/cargo-deny).
+
+Before pushing, run `make prepush`. It adds `make msrv-check`, which needs the
+Rust 1.88.0 toolchain (`rustup toolchain install 1.88.0`), `make lint-yaml`
+(`yamlfmt` and `yamllint`), `make lint-workflows` (`actionlint`), and the tool
+controls, which need Go. `make doctor DOCTOR_SCOPE=dev` reports host
+tool versions.
+
+Every workflow and local action is pinned by digest in
+`config/release/release-workflow.sha256`. A change to one updates its pin line
+in the same change and is reviewed as a trust-file change. Change the version
+only through the `make version-*` targets.
 
 ## License
 

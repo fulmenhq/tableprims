@@ -9,3 +9,6 @@
 *.local.yml
 *.local.json
 *.local.toml
+/.limensafe/
+__pycache__/
+*.pyc
