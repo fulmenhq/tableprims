@@ -14,6 +14,11 @@
 
 use core::fmt;
 
+/// Deepest nesting of arrays and objects this reader accepts, whatever the
+/// caller allows. Reading and dropping a value recurse once per level, so
+/// this ceiling bounds stack use.
+pub const MAX_NESTING: usize = 64;
+
 /// A JSON value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Json {
@@ -219,7 +224,8 @@ impl From<StringError> for JsonError {
 /// Parses one JSON document.
 ///
 /// `max_depth` is the deepest permitted nesting of arrays and objects: a
-/// document that is a scalar has depth zero.
+/// document that is a scalar has depth zero. A limit above [`MAX_NESTING`]
+/// is treated as [`MAX_NESTING`].
 ///
 /// # Errors
 ///
@@ -231,7 +237,7 @@ pub fn parse_document(text: &str, max_depth: usize) -> Result<Json, JsonError> {
     if cursor.peek().is_none() {
         return Err(JsonError::Empty);
     }
-    let value = value(&mut cursor, max_depth)?;
+    let value = value(&mut cursor, max_depth.min(MAX_NESTING))?;
     cursor.skip(is_json_whitespace);
     if cursor.peek().is_some() {
         return Err(JsonError::TrailingContent);
@@ -542,6 +548,26 @@ mod tests {
         // Deep input fails on the limit, not on the call stack.
         let deep = "[".repeat(100_000);
         assert_eq!(parse_document(&deep, 64), Err(JsonError::TooDeep));
+    }
+
+    #[test]
+    fn caller_cannot_raise_depth_above_the_ceiling() {
+        let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        assert!(parse_document(&nested(MAX_NESTING), usize::MAX).is_ok());
+        assert_eq!(
+            parse_document(&nested(MAX_NESTING + 1), usize::MAX),
+            Err(JsonError::TooDeep)
+        );
+        // Well-formed and far deeper than any stack: refused, not overflowed.
+        assert_eq!(
+            parse_document(&nested(200_000), usize::MAX),
+            Err(JsonError::TooDeep)
+        );
+        let objects = format!("{}1{}", "{\"a\":".repeat(200_000), "}".repeat(200_000));
+        assert_eq!(
+            parse_document(&objects, usize::MAX),
+            Err(JsonError::TooDeep)
+        );
     }
 
     #[test]
