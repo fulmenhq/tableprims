@@ -105,11 +105,13 @@ fn number_format(scan: &Scan, at: usize) -> Option<Format> {
 impl Scan {
     /// Reads the input a second time and writes the workbook to `sink`.
     ///
-    /// `input` must yield the bytes [`Plan::scan`](crate::Plan::scan) read.
-    /// The rows are validated again. A read with a different outcome or
-    /// different cells is refused; the cells are compared by a 64-bit
-    /// fingerprint, which is not a digest. A caller that needs that
-    /// assurance compares digests of the bytes of both reads.
+    /// `input` must yield the bytes [`Plan::scan`](crate::Plan::scan) read,
+    /// and the caller is responsible for that: by an input that cannot
+    /// change, or by comparing digests of the bytes of both reads before
+    /// publishing what `sink` received. As a safeguard the rows are
+    /// validated again and a read with a different outcome or different
+    /// cells is refused; the cells are compared by a 64-bit fingerprint,
+    /// which is not a digest.
     ///
     /// Row data is staged in unnamed temporary files, in `staging` when it
     /// is given and in the system temporary directory otherwise. `sink`

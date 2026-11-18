@@ -9,11 +9,14 @@
 //! 2. [`Plan::scan`] reads the input once, validates every row and decides
 //!    how each column is stored.
 //! 3. [`Scan::write`] reads the input a second time and writes the
-//!    workbook. The second read must yield the cells of the first: a
-//!    different outcome is refused, and so is a difference in the cells
-//!    themselves, which a 64-bit fingerprint detects. The fingerprint is
-//!    not a digest; a caller that needs that assurance compares digests of
-//!    the bytes of both reads.
+//!    workbook.
+//!
+//! The caller must give both reads the same bytes: an input that cannot
+//! change between them, or digests of the bytes of both reads that the
+//! caller compares before it publishes the workbook. The adapter does not
+//! establish this. As a safeguard it refuses a second read with a different
+//! outcome or different cells, comparing the cells by a 64-bit fingerprint
+//! that is not a digest.
 //!
 //! An exact number is stored as a numeric cell only when the decimal text
 //! of the stored binary64 value equals the source value; see
