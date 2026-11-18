@@ -7,6 +7,7 @@
 //! tested. Callers must treat an absent conversion as unsupported.
 
 pub mod binary64;
+pub mod documents;
 pub mod exact;
 pub mod json;
 pub mod ndjson;
