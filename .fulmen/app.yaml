@@ -1,0 +1,11 @@
+# Fulmen application identity for the tablebolt CLI.
+app:
+  vendor: fulmenhq
+  binary_name: tablebolt
+  env_prefix: TABLEBOLT_
+  config_name: tablebolt
+  description: Typed tabular conversion CLI built on the tableprims library
+metadata:
+  project_url: https://github.com/fulmenhq/tableprims
+  license: MIT OR Apache-2.0
+  repository_category: library

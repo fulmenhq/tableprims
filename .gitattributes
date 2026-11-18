@@ -1,0 +1,2 @@
+# Keep sources, documentation and scripts byte-stable across checkouts.
+* text=auto eol=lf
