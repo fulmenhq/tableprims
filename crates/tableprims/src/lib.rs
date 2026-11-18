@@ -8,6 +8,7 @@
 
 pub mod binary64;
 pub mod exact;
+pub mod json;
 pub mod ndjson;
 pub mod table;
 pub mod temporal;
