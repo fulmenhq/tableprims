@@ -35,7 +35,11 @@
 //! ```
 //!
 //! `exact_numbers` is `require-exact`, `text-if-needed` or `text-always`.
-//! `quantize` and `limits` are optional.
+//! `quantize` and `limits` are optional. `sheet` may not be empty or the
+//! reserved name [`RESERVED_SHEET`] in any letter case; any further naming
+//! rule belongs to the destination format. A limit is read as written:
+//! checking it against the ceilings of a particular destination is left to
+//! the consumer of the policy.
 
 use core::fmt;
 
@@ -48,6 +52,10 @@ use crate::temporal::FractionPrecision;
 pub const SCHEMA_FORMAT: &str = "tableprims.schema/0";
 /// Format identifier of the policy document this build reads.
 pub const POLICY_FORMAT: &str = "tableprims.policy/0";
+
+/// Sheet name reserved for table metadata. A policy may not name it as the
+/// destination sheet, in any letter case.
+pub const RESERVED_SHEET: &str = "_tableprims";
 
 /// Deepest nesting either document uses: object, array, object.
 const MAX_DEPTH: usize = 3;
@@ -377,7 +385,7 @@ pub fn parse_policy(text: &str) -> Result<Policy, DocumentError> {
         _ => return Err(DocumentError::Invalid("exact_numbers")),
     };
     let sheet = members.string("sheet")?;
-    if sheet.is_empty() {
+    if sheet.is_empty() || sheet.eq_ignore_ascii_case(RESERVED_SHEET) {
         return Err(DocumentError::Invalid("sheet"));
     }
     let mut quantize: Vec<Quantize> = Vec::new();
@@ -751,6 +759,24 @@ mod tests {
             whole(r#", "exact_numbers": "require-exact", "sheet": """#),
             Err(DocumentError::Invalid("sheet"))
         );
+        for reserved in ["_tableprims", "_TABLEPRIMS", "_TaBlEpRiMs"] {
+            assert_eq!(
+                whole(&format!(
+                    r#", "exact_numbers": "require-exact", "sheet": "{reserved}""#
+                )),
+                Err(DocumentError::Invalid("sheet")),
+                "{reserved}"
+            );
+        }
+        for allowed in ["tableprims", "_tableprims2", "x_tableprims", " _tableprims"] {
+            assert!(
+                whole(&format!(
+                    r#", "exact_numbers": "require-exact", "sheet": "{allowed}""#
+                ))
+                .is_ok(),
+                "{allowed}"
+            );
+        }
         let cases = [
             (r#", "quantize": {}"#, DocumentError::Invalid("quantize")),
             (r#", "quantize": ["a"]"#, DocumentError::NotAnObject),
