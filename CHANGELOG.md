@@ -21,6 +21,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Library module `temporal`: calendar dates, local timestamps and
   fixed-offset timestamps with a declared fractional-second precision, kept
   as written.
+- Library module `ndjson`: rows as newline-delimited JSON arrays of `null`,
+  booleans and strings, read one line at a time under a line length limit.
+  Bare numbers and nested values are refused.
 - Build, format, lint, test, dependency and minimum-Rust-version checks.
 - `make check-platform` as the native gate: formatting, Clippy, tests, the
   `tablebolt` smoke run, the leaf-dependency rule, a content check for local
