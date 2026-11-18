@@ -174,7 +174,10 @@ impl fmt::Display for Date {
 }
 
 /// A date and time of day with no offset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Equality compares the fields and the declared precision as written. No
+/// ordering is defined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalTimestamp {
     date: Date,
     hour: u8,
@@ -306,25 +309,25 @@ impl fmt::Display for LocalTimestamp {
 }
 
 /// A fixed offset from UTC, kept as written.
+///
+/// `Z` and `+00:00` are different values that both denote zero minutes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Offset {
-    /// Written `Z`.
-    Utc,
-    /// Written `+HH:MM` or `-HH:MM`.
-    Fixed {
-        /// Whether the offset is west of UTC (written with a minus sign).
-        negative: bool,
-        /// Hours, `0` to `23`.
-        hours: u8,
-        /// Minutes, `0` to `59`.
-        minutes: u8,
-    },
+pub struct Offset {
+    designator: bool,
+    negative: bool,
+    hours: u8,
+    minutes: u8,
 }
 
 impl Offset {
     fn parse_bytes(bytes: &[u8]) -> Result<Self, TemporalError> {
         if bytes == b"Z" {
-            return Ok(Self::Utc);
+            return Ok(Self {
+                designator: true,
+                negative: false,
+                hours: 0,
+                minutes: 0,
+            });
         }
         if bytes.len() != 6 || bytes[3] != b':' {
             return Err(TemporalError::InvalidOffset);
@@ -342,48 +345,44 @@ impl Offset {
         if negative && hours == 0 && minutes == 0 {
             return Err(TemporalError::NegativeZeroOffset);
         }
-        Ok(Self::Fixed {
+        Ok(Self {
+            designator: false,
             negative,
             hours: hours as u8,
             minutes: minutes as u8,
         })
     }
 
+    /// Whether the offset is written `Z` rather than as hours and minutes.
+    #[must_use]
+    pub fn is_utc_designator(self) -> bool {
+        self.designator
+    }
+
     /// Offset east of UTC in minutes; negative values are west.
     #[must_use]
     pub fn total_minutes(self) -> i16 {
-        match self {
-            Self::Utc => 0,
-            Self::Fixed {
-                negative,
-                hours,
-                minutes,
-            } => {
-                let magnitude = i16::from(hours) * 60 + i16::from(minutes);
-                if negative {
-                    -magnitude
-                } else {
-                    magnitude
-                }
-            }
+        let magnitude = i16::from(self.hours) * 60 + i16::from(self.minutes);
+        if self.negative {
+            -magnitude
+        } else {
+            magnitude
         }
     }
 }
 
 impl fmt::Display for Offset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Utc => f.write_str("Z"),
-            Self::Fixed {
-                negative,
-                hours,
-                minutes,
-            } => write!(
-                f,
-                "{}{hours:02}:{minutes:02}",
-                if negative { '-' } else { '+' }
-            ),
+        if self.designator {
+            return f.write_str("Z");
         }
+        write!(
+            f,
+            "{}{:02}:{:02}",
+            if self.negative { '-' } else { '+' },
+            self.hours,
+            self.minutes
+        )
     }
 }
 
@@ -596,10 +595,18 @@ mod tests {
         let z = OffsetTimestamp::parse("2024-01-01T00:00:00Z", p(0)).unwrap();
         let zero = OffsetTimestamp::parse("2024-01-01T00:00:00+00:00", p(0)).unwrap();
         assert_ne!(z, zero);
-        assert_eq!(z.offset(), Offset::Utc);
+        assert!(z.offset().is_utc_designator());
+        assert!(!zero.offset().is_utc_designator());
         assert_eq!(z.offset().total_minutes(), 0);
         assert_eq!(zero.offset().total_minutes(), 0);
         assert_eq!(z.local(), zero.local());
+    }
+
+    #[test]
+    fn timestamps_of_different_precision_are_not_equal() {
+        let tenths = LocalTimestamp::parse("2026-01-01T00:00:00.1", p(1)).unwrap();
+        let hundredths = LocalTimestamp::parse("2026-01-01T00:00:00.10", p(2)).unwrap();
+        assert_ne!(tenths, hundredths);
     }
 
     #[test]
