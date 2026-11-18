@@ -8,6 +8,7 @@
 
 pub mod exact;
 pub mod table;
+pub mod temporal;
 
 /// Version of this library.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

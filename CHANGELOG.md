@@ -12,6 +12,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   package, which builds the `tablebolt` binary.
 - `tablebolt version` and `tablebolt capabilities`, each with `--json`. The
   capability list is empty: no conversion is implemented.
+- Library module `exact`: exact integers and fixed-scale decimals of up to 38
+  digits with a strict textual grammar, checked addition and quantization
+  with five rounding modes.
+- Library module `table`: schemas of uniquely identified columns, typed values
+  and a row check that locates the first violation by row index and column
+  identifier.
+- Library module `temporal`: calendar dates, local timestamps and
+  fixed-offset timestamps with a declared fractional-second precision, kept
+  as written.
 - Build, format, lint, test, dependency and minimum-Rust-version checks.
 - `make check-platform` as the native gate: formatting, Clippy, tests, the
   `tablebolt` smoke run, the leaf-dependency rule, a content check for local
