@@ -6,6 +6,7 @@
 //! [`conversions`] returns an empty list until an adapter is implemented and
 //! tested. Callers must treat an absent conversion as unsupported.
 
+pub mod binary64;
 pub mod exact;
 pub mod ndjson;
 pub mod table;
