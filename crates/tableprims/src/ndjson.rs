@@ -19,6 +19,7 @@
 use core::fmt;
 use std::io::{self, BufRead, Read};
 
+use crate::json::{Cursor, StringError};
 use crate::table::Scalar;
 
 /// One cell of a row as read from a line.
@@ -91,29 +92,27 @@ impl std::error::Error for LineError {}
 /// `false` and string values.
 pub fn parse_line(line: &str) -> Result<Vec<Cell>, LineError> {
     let mut parser = Parser {
-        bytes: line.as_bytes(),
-        text: line,
-        at: 0,
+        cursor: Cursor::new(line),
     };
     parser.skip_whitespace();
     match parser.peek() {
         None => return Err(LineError::Blank),
-        Some(b'[') => parser.at += 1,
+        Some(b'[') => parser.advance(),
         Some(_) => return Err(LineError::NotAnArray),
     }
     let mut cells = Vec::new();
     parser.skip_whitespace();
     if parser.peek() == Some(b']') {
-        parser.at += 1;
+        parser.advance();
     } else {
         loop {
             parser.skip_whitespace();
             cells.push(parser.cell()?);
             parser.skip_whitespace();
             match parser.peek() {
-                Some(b',') => parser.at += 1,
+                Some(b',') => parser.advance(),
                 Some(b']') => {
-                    parser.at += 1;
+                    parser.advance();
                     break;
                 }
                 _ => return Err(LineError::Malformed),
@@ -128,25 +127,28 @@ pub fn parse_line(line: &str) -> Result<Vec<Cell>, LineError> {
 }
 
 struct Parser<'a> {
-    bytes: &'a [u8],
-    text: &'a str,
-    at: usize,
+    cursor: Cursor<'a>,
+}
+
+fn is_line_whitespace(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t')
 }
 
 impl Parser<'_> {
     fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.at).copied()
+        self.cursor.peek()
+    }
+
+    fn advance(&mut self) {
+        self.cursor.advance();
     }
 
     fn skip_whitespace(&mut self) {
-        while matches!(self.peek(), Some(b' ' | b'\t')) {
-            self.at += 1;
-        }
+        self.cursor.skip(is_line_whitespace);
     }
 
     fn literal(&mut self, word: &str, cell: Cell) -> Result<Cell, LineError> {
-        if self.bytes[self.at..].starts_with(word.as_bytes()) {
-            self.at += word.len();
+        if self.cursor.take(word) {
             Ok(cell)
         } else {
             Err(LineError::Malformed)
@@ -156,8 +158,13 @@ impl Parser<'_> {
     fn cell(&mut self) -> Result<Cell, LineError> {
         match self.peek() {
             Some(b'"') => {
-                self.at += 1;
-                self.string().map(Cell::Text)
+                self.advance();
+                match self.cursor.string() {
+                    Ok(text) => Ok(Cell::Text(text)),
+                    Err(StringError::Invalid) => Err(LineError::InvalidString),
+                    // The line ended inside the string.
+                    Err(StringError::Unterminated) => Err(LineError::Malformed),
+                }
             }
             Some(b'n') => self.literal("null", Cell::Null),
             Some(b't') => self.literal("true", Cell::Boolean(true)),
@@ -166,91 +173,6 @@ impl Parser<'_> {
             Some(b'[' | b'{') => Err(LineError::NestedValue),
             _ => Err(LineError::Malformed),
         }
-    }
-
-    /// Reads a string body; the opening quote is already consumed.
-    fn string(&mut self) -> Result<String, LineError> {
-        let mut out = String::new();
-        loop {
-            let start = self.at;
-            // Copy the run up to the next quote, backslash or control byte.
-            // These are ASCII, so the run ends on a character boundary.
-            while let Some(byte) = self.peek() {
-                if byte == b'"' || byte == b'\\' || byte < 0x20 {
-                    break;
-                }
-                self.at += 1;
-            }
-            out.push_str(&self.text[start..self.at]);
-            match self.peek() {
-                Some(b'"') => {
-                    self.at += 1;
-                    return Ok(out);
-                }
-                Some(b'\\') => {
-                    self.at += 1;
-                    out.push(self.escape()?);
-                }
-                // A control character, or the line ended inside the string.
-                Some(_) => return Err(LineError::InvalidString),
-                None => return Err(LineError::Malformed),
-            }
-        }
-    }
-
-    /// Reads one escape; the backslash is already consumed.
-    fn escape(&mut self) -> Result<char, LineError> {
-        let byte = self.peek().ok_or(LineError::Malformed)?;
-        self.at += 1;
-        Ok(match byte {
-            b'"' => '"',
-            b'\\' => '\\',
-            b'/' => '/',
-            b'b' => '\u{8}',
-            b'f' => '\u{c}',
-            b'n' => '\n',
-            b'r' => '\r',
-            b't' => '\t',
-            b'u' => return self.unicode_escape(),
-            _ => return Err(LineError::InvalidString),
-        })
-    }
-
-    fn hex4(&mut self) -> Result<u32, LineError> {
-        let digits = self
-            .bytes
-            .get(self.at..self.at + 4)
-            .ok_or(LineError::InvalidString)?;
-        let mut value = 0;
-        for byte in digits {
-            let digit = char::from(*byte)
-                .to_digit(16)
-                .ok_or(LineError::InvalidString)?;
-            value = value * 16 + digit;
-        }
-        self.at += 4;
-        Ok(value)
-    }
-
-    /// Reads the digits of a `\u` escape, pairing surrogates.
-    fn unicode_escape(&mut self) -> Result<char, LineError> {
-        let first = self.hex4()?;
-        let code = match first {
-            0xD800..=0xDBFF => {
-                if !self.bytes[self.at..].starts_with(b"\\u") {
-                    return Err(LineError::InvalidString);
-                }
-                self.at += 2;
-                let second = self.hex4()?;
-                if !(0xDC00..=0xDFFF).contains(&second) {
-                    return Err(LineError::InvalidString);
-                }
-                0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00)
-            }
-            0xDC00..=0xDFFF => return Err(LineError::InvalidString),
-            other => other,
-        };
-        char::from_u32(code).ok_or(LineError::InvalidString)
     }
 }
 

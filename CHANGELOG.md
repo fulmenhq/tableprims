@@ -27,6 +27,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Library module `binary64`: decides whether an exact integer or decimal can
   be stored as a binary64 number and recovered, and returns the value to
   store. At most 15 significant digits; integers must be exact in binary.
+- Library module `json`: a strict reader for small JSON documents that
+  refuses repeated object keys, unpaired surrogates and any number other than
+  a plain non-negative integer, under a nesting depth limit.
 - Build, format, lint, test, dependency and minimum-Rust-version checks.
 - `make check-platform` as the native gate: formatting, Clippy, tests, the
   `tablebolt` smoke run, the leaf-dependency rule, a content check for local
