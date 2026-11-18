@@ -13,6 +13,7 @@
 //! every refusal is explicit.
 
 use core::fmt;
+use std::collections::HashSet;
 
 /// Deepest nesting of arrays and objects this reader accepts, whatever the
 /// caller allows. Reading and dropping a value recurse once per level, so
@@ -348,6 +349,7 @@ fn array(cursor: &mut Cursor<'_>, depth_left: usize) -> Result<Json, JsonError> 
 /// Reads object members; the opening brace is already consumed.
 fn object(cursor: &mut Cursor<'_>, depth_left: usize) -> Result<Json, JsonError> {
     let mut members: Vec<(String, Json)> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     cursor.skip(is_json_whitespace);
     if cursor.peek() == Some(b'}') {
         cursor.advance();
@@ -360,9 +362,9 @@ fn object(cursor: &mut Cursor<'_>, depth_left: usize) -> Result<Json, JsonError>
         }
         cursor.advance();
         let key = cursor.string()?;
-        // Documents read here are small; a linear scan keeps member order
-        // and needs no hashing.
-        if members.iter().any(|(existing, _)| *existing == key) {
+        // The set detects a repeat in constant time; the vector keeps the
+        // order written.
+        if !seen.insert(key.clone()) {
             return Err(JsonError::DuplicateKey);
         }
         cursor.skip(is_json_whitespace);
@@ -448,6 +450,22 @@ mod tests {
         // Keys that differ only by case or normalization form are distinct.
         assert!(parse(r#"{"a": 1, "A": 2}"#).is_ok());
         assert!(parse("{\"\u{e9}\": 1, \"e\u{301}\": 2}").is_ok());
+    }
+
+    #[test]
+    fn duplicate_detection_scales_with_member_count() {
+        let mut text = String::from("{");
+        for i in 0..50_000 {
+            text.push_str(&format!("\"k{i}\":null,"));
+        }
+        let unique = format!("{text}\"last\":null}}");
+        let Json::Object(members) = parse(&unique).unwrap() else {
+            panic!("not an object");
+        };
+        assert_eq!(members.len(), 50_001);
+        assert_eq!(members[0].0, "k0");
+        let repeated = format!("{text}\"k0\":null}}");
+        assert_eq!(parse(&repeated), Err(JsonError::DuplicateKey));
     }
 
     #[test]
