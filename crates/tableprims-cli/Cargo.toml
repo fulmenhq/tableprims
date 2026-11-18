@@ -20,6 +20,11 @@ path = "src/main.rs"
 tableprims.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+tableprims-xlsx.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
+canonprims-core.workspace = true
+canonprims-json.workspace = true
 
 [lints]
 workspace = true

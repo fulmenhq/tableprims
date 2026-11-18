@@ -39,7 +39,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cell. Exact numbers become numeric cells only when the stored value reads
   back as the source value; otherwise the policy refuses the value or writes
   the column as text. Types, scale, nullability and empty strings are
-  recorded on a hidden `_tableprims` worksheet. The CLI does not use it yet.
+  recorded on a hidden `_tableprims` worksheet.
+- `tablebolt xlsx write`: converts newline-delimited JSON rows to a workbook
+  under a schema and a policy document, and writes a result file with the
+  status, digests of the inputs and the workbook, a digest of the resolved
+  policy, per-column counts and, on a refusal, a category, rule and location.
+  Existing files are never replaced. `tablebolt capabilities` lists the
+  conversion. See `docs/xlsx-write.md`.
 - Build, format, lint, test, dependency and minimum-Rust-version checks.
 - `make check-platform` as the native gate: formatting, Clippy, tests, the
   `tablebolt` smoke run, the leaf-dependency rule, a content check for local
@@ -62,6 +68,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before the declared type. A misplaced or repeated decimal point is
   `Malformed`, more than 38 significant digits is `DigitLimitExceeded`, and
   an integer written with a decimal point is `PointMismatch`.
+- `make deps-check` allows the CLI package, and only it, to depend on
+  `canonprims-core` and `canonprims-json` at exactly 0.1.5, requires the
+  library crate to have no dependencies and refuses a profile that aborts
+  on panic.
 - CI runs at the minimum supported Rust version on Linux x86_64 and aarch64,
   macOS arm64 and Windows x86_64 and aarch64; `make msrv` is now
   `make msrv-check`.

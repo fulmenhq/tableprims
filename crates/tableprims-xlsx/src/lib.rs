@@ -67,3 +67,54 @@ pub const MAX_EMPTY_RANGES: u64 = 65_536;
 pub const DEFAULT_MAX_LINE_BYTES: u64 = 1 << 20;
 /// Largest length limit of one input line a policy may set, in bytes.
 pub const MAX_LINE_BYTES: u64 = 1 << 24;
+
+/// The settings of this profile as one JSON object, with member names in
+/// ascending order and no insignificant whitespace. Its digest identifies
+/// the profile a write ran under.
+#[must_use]
+pub fn profile_definition() -> String {
+    format!(
+        concat!(
+            r#"{{"backend":{{"features":["constant_memory"],"name":"{backend}","version":"{version}"}},"#,
+            r#""format":"tableprims.profile/0","id":"{id}","#,
+            r#""limits":{{"default_max_line_bytes":{line_default},"max_cell_units":{cell},"#,
+            r#""max_columns":{columns},"max_empty_ranges":{ranges},"max_line_bytes":{line},"max_rows":{rows}}},"#,
+            r#""metadata":{{"header_rows":{header},"layout":"{layout}","ranges_per_record":{per_record},"#,
+            r#""sheet":"{sheet}"}},"#,
+            r#""native":{{"max_format_scale":{format_scale},"max_significant_digits":{digits}}}}}"#,
+        ),
+        backend = BACKEND_NAME,
+        version = BACKEND_VERSION,
+        id = PROFILE_ID,
+        line_default = DEFAULT_MAX_LINE_BYTES,
+        cell = MAX_CELL_UNITS,
+        columns = MAX_COLUMNS,
+        ranges = MAX_EMPTY_RANGES,
+        line = MAX_LINE_BYTES,
+        rows = MAX_ROWS,
+        header = metadata::HEADER_ROWS,
+        layout = metadata::LAYOUT,
+        per_record = metadata::RANGES_PER_RECORD,
+        sheet = tableprims::documents::RESERVED_SHEET,
+        format_scale = write::MAX_FORMAT_SCALE,
+        digits = tableprims::binary64::MAX_SIGNIFICANT_DIGITS,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_profile_definition_is_pinned() {
+        assert_eq!(
+            super::profile_definition(),
+            concat!(
+                r#"{"backend":{"features":["constant_memory"],"name":"rust_xlsxwriter","version":"0.102.0"},"#,
+                r#""format":"tableprims.profile/0","id":"xlsx-write/r1","#,
+                r#""limits":{"default_max_line_bytes":1048576,"max_cell_units":32767,"max_columns":16384,"#,
+                r#""max_empty_ranges":65536,"max_line_bytes":16777216,"max_rows":1048575},"#,
+                r#""metadata":{"header_rows":1,"layout":"1","ranges_per_record":512,"sheet":"_tableprims"},"#,
+                r#""native":{"max_format_scale":30,"max_significant_digits":15}}"#,
+            )
+        );
+    }
+}

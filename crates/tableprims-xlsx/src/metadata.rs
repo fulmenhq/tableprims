@@ -44,7 +44,8 @@ pub const HEADER_ROWS: u32 = 1;
 pub const RANGES_PER_RECORD: usize = 512;
 
 /// The name of a rounding mode, or `None` for one this profile does not know.
-pub(crate) fn rounding_name(mode: RoundingMode) -> Option<&'static str> {
+#[must_use]
+pub fn rounding_name(mode: RoundingMode) -> Option<&'static str> {
     Some(match mode {
         RoundingMode::HalfEven => "half-even",
         RoundingMode::HalfAwayFromZero => "half-away-from-zero",

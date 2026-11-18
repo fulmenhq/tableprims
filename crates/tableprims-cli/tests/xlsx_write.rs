@@ -1,0 +1,413 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+//! Runs `tablebolt xlsx write` and checks the exit code, the result file
+//! and what is left on disk.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+const SCHEMA: &str = r#"{"format":"tableprims.schema/0","columns":[
+ {"id":"invoice","label":"Invoice","type":"string","nullable":false},
+ {"id":"qty","label":"Qty","type":"integer","nullable":false},
+ {"id":"amount","label":"Amount","type":"decimal","precision":12,"scale":4,"nullable":true},
+ {"id":"paid","label":"Paid","type":"boolean","nullable":true}]}"#;
+const POLICY: &str = r#"{"format":"tableprims.policy/0","exact_numbers":"require-exact","sheet":"Data",
+ "quantize":[{"column":"amount","scale":2,"rounding":"half-even"}]}"#;
+const ROWS: &str = concat!(
+    "[\"INV-1\",\"3\",\"12.3450\",true]\n",
+    "[\"\",\"7\",\"123.4500\",null]\n",
+    "[\"INV-3\",\"1\",null,false]\n",
+);
+
+/// A scratch directory holding the three inputs, removed when dropped.
+struct Case {
+    dir: PathBuf,
+}
+
+impl Case {
+    fn new(name: &str, schema: &str, policy: &str, rows: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("tablebolt-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("schema.json"), schema).unwrap();
+        fs::write(dir.join("policy.json"), policy).unwrap();
+        fs::write(dir.join("rows.ndjson"), rows).unwrap();
+        Self { dir }
+    }
+
+    fn path(&self, name: &str) -> String {
+        self.dir.join(name).to_str().unwrap().to_owned()
+    }
+
+    fn run(&self, extra: &[&str]) -> Output {
+        let mut args = vec![
+            "xlsx".to_owned(),
+            "write".to_owned(),
+            "--input".to_owned(),
+            self.path("rows.ndjson"),
+            "--schema".to_owned(),
+            self.path("schema.json"),
+            "--policy".to_owned(),
+            self.path("policy.json"),
+        ];
+        // An argument given by the test replaces the default.
+        for (flag, name) in [("--output", "out.xlsx"), ("--result", "result.json")] {
+            if !extra.contains(&flag) {
+                args.extend([flag.to_owned(), self.path(name)]);
+            }
+        }
+        args.extend(extra.iter().map(|arg| (*arg).to_owned()));
+        Command::new(env!("CARGO_BIN_EXE_tablebolt"))
+            .args(&args)
+            .output()
+            .expect("tablebolt binary runs")
+    }
+
+    fn result(&self) -> Value {
+        serde_json::from_slice(&fs::read(self.dir.join("result.json")).unwrap()).unwrap()
+    }
+
+    fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(&self.dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    }
+}
+
+impl Drop for Case {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn sum(path: &Path) -> Value {
+    let bytes = fs::read(path).unwrap();
+    let hex: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    serde_json::json!({ "sha256": hex, "bytes": bytes.len() })
+}
+
+const INPUTS: [&str; 3] = ["policy.json", "rows.ndjson", "schema.json"];
+
+#[test]
+fn a_completed_run_publishes_the_workbook_and_a_matching_result() {
+    let case = Case::new("ok", SCHEMA, POLICY, ROWS);
+    let output = case.run(&["--run-id", "case-0001"]);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    assert_eq!(
+        case.names(),
+        [
+            "out.xlsx",
+            "policy.json",
+            "result.json",
+            "rows.ndjson",
+            "schema.json"
+        ]
+    );
+    let result = case.result();
+    assert_eq!(result["format"], "tableprims.result/0");
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["run_id"], "case-0001");
+    assert!(result.get("refusal").is_none());
+    assert_eq!(result["output"], sum(&case.dir.join("out.xlsx")));
+    assert!(fs::read(case.dir.join("out.xlsx"))
+        .unwrap()
+        .starts_with(b"PK"));
+    assert_eq!(result["inputs"]["rows"], sum(&case.dir.join("rows.ndjson")));
+    assert_eq!(
+        result["inputs"]["schema"],
+        sum(&case.dir.join("schema.json"))
+    );
+    assert_eq!(
+        result["inputs"]["policy"],
+        sum(&case.dir.join("policy.json"))
+    );
+    assert_eq!(result["tool"]["name"], "tablebolt");
+    assert_eq!(result["backend"]["version"], "0.102.0");
+    assert_eq!(result["profile"]["id"], "xlsx-write/r1");
+    assert_eq!(result["policy_digest"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        result["limits"],
+        serde_json::json!({"max_rows": 1_048_575, "max_line_bytes": 1_048_576, "max_empty_ranges": 65_536})
+    );
+    assert_eq!(
+        result["counts"],
+        serde_json::json!({"rows": 3, "columns": [
+            {"id": "invoice", "representation": "text", "null": 0, "empty": 1},
+            {"id": "qty", "representation": "native", "null": 0, "empty": 0,
+             "numeric": 3, "text_fallback": 0, "text_forced": 0, "quantized": 0, "scale_changed": 0},
+            {"id": "amount", "representation": "native", "null": 1, "empty": 0,
+             "numeric": 2, "text_fallback": 0, "text_forced": 0, "quantized": 1, "scale_changed": 2},
+            {"id": "paid", "representation": "native", "null": 1, "empty": 0}
+        ]})
+    );
+}
+
+#[test]
+fn a_run_without_an_identifier_generates_one() {
+    let case = Case::new("auto", SCHEMA, POLICY, ROWS);
+    assert_eq!(case.run(&[]).status.code(), Some(0));
+    let result = case.result();
+    let id = result["run_id"].as_str().unwrap();
+    let hex = id.strip_prefix("auto-").unwrap();
+    assert_eq!(hex.len(), 32);
+    assert!(hex
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+}
+
+#[test]
+fn existing_files_are_never_replaced() {
+    let case = Case::new("exists-output", SCHEMA, POLICY, ROWS);
+    fs::write(case.dir.join("out.xlsx"), b"theirs").unwrap();
+    let output = case.run(&[]);
+    assert_eq!(output.status.code(), Some(54));
+    assert_eq!(fs::read(case.dir.join("out.xlsx")).unwrap(), b"theirs");
+    let result = case.result();
+    assert_eq!(result["status"], "failed");
+    assert_eq!(
+        result["refusal"],
+        serde_json::json!({"category": "io-failure", "rule": "output-exists"})
+    );
+    assert!(result.get("output").is_none() && result.get("counts").is_none());
+    assert_eq!(result["inputs"], serde_json::json!({}));
+
+    let case = Case::new("exists-result", SCHEMA, POLICY, ROWS);
+    fs::write(case.dir.join("result.json"), b"theirs").unwrap();
+    let output = case.run(&[]);
+    assert_eq!(output.status.code(), Some(54));
+    assert_eq!(fs::read(case.dir.join("result.json")).unwrap(), b"theirs");
+    assert_eq!(
+        case.names(),
+        ["policy.json", "result.json", "rows.ndjson", "schema.json"]
+    );
+}
+
+#[test]
+fn usage_errors_write_nothing() {
+    let case = Case::new("usage", SCHEMA, POLICY, ROWS);
+    assert_eq!(case.run(&["--run-id", "not valid"]).status.code(), Some(64));
+    let same = case.path("out.xlsx");
+    assert_eq!(case.run(&["--result", &same]).status.code(), Some(64));
+    assert_eq!(case.names(), INPUTS);
+}
+
+/// Runs a case expected not to complete and checks that no workbook and no
+/// temporary file is left.
+fn refused(
+    name: &str,
+    schema: &str,
+    policy: &str,
+    rows: &str,
+    exit: i32,
+    status: &str,
+    refusal: Value,
+) -> Value {
+    let case = Case::new(name, schema, policy, rows);
+    let output = case.run(&[]);
+    assert_eq!(output.status.code(), Some(exit), "{name}");
+    assert!(output.stdout.is_empty(), "{name}");
+    assert_eq!(
+        case.names(),
+        ["policy.json", "result.json", "rows.ndjson", "schema.json"],
+        "{name}"
+    );
+    let result = case.result();
+    assert_eq!(result["status"], status, "{name}");
+    assert_eq!(result["refusal"], refusal, "{name}");
+    assert!(
+        result.get("output").is_none() && result.get("counts").is_none(),
+        "{name}"
+    );
+    assert_eq!(
+        result["inputs"]["schema"],
+        sum(&case.dir.join("schema.json")),
+        "{name}"
+    );
+    result
+}
+
+#[test]
+fn refusals_carry_a_category_a_rule_and_a_location() {
+    use serde_json::json;
+    let rows = |row: &str| format!("[\"INV-1\",\"3\",\"12.3450\",true]\n{row}\n");
+    for (name, row, exit, refusal) in [
+        (
+            "numeric-literal",
+            "[\"INV-2\",7,null,null]",
+            61,
+            json!({"category": "invalid-input", "rule": "numeric-literal", "row": 1}),
+        ),
+        (
+            "leading-zero",
+            "[\"INV-2\",\"007\",null,null]",
+            61,
+            json!({"category": "invalid-input", "rule": "exact-leading-zero", "row": 1, "column": "qty"}),
+        ),
+        (
+            "null",
+            "[null,\"7\",null,null]",
+            60,
+            json!({"category": "schema-mismatch", "rule": "null-not-allowed", "row": 1, "column": "invoice"}),
+        ),
+        (
+            "scale",
+            "[\"INV-2\",\"7\",\"1.5\",null]",
+            60,
+            json!({"category": "schema-mismatch", "rule": "exact-scale-mismatch", "row": 1, "column": "amount"}),
+        ),
+        (
+            "digits",
+            "[\"INV-2\",\"9007199254740993\",null,null]",
+            62,
+            json!({"category": "unsupported-representation", "rule": "too-many-significant-digits", "row": 1, "column": "qty"}),
+        ),
+    ] {
+        let result = refused(name, SCHEMA, POLICY, &rows(row), exit, "refused", refusal);
+        // The rows were not read to the end, so no digest is claimed.
+        assert!(result["inputs"].get("rows").is_none(), "{name}");
+        assert_eq!(
+            result["policy_digest"].as_str().unwrap().len(),
+            64,
+            "{name}"
+        );
+    }
+    let capped = POLICY.replace("\"sheet\"", "\"limits\":{\"max_rows\":2},\"sheet\"");
+    refused(
+        "rows-limit",
+        SCHEMA,
+        &capped,
+        ROWS,
+        60,
+        "refused",
+        json!({"category": "resource-limit", "rule": "too-many-rows", "row": 2}),
+    );
+    let over = POLICY.replace("\"sheet\"", "\"limits\":{\"max_rows\":1048576},\"sheet\"");
+    refused(
+        "ceiling",
+        SCHEMA,
+        &over,
+        ROWS,
+        60,
+        "refused",
+        json!({"category": "resource-limit", "rule": "limit-above-profile"}),
+    );
+    refused(
+        "sheet",
+        SCHEMA,
+        &POLICY.replace("\"Data\"", "\"a/b\""),
+        ROWS,
+        62,
+        "refused",
+        json!({"category": "unsupported-representation", "rule": "sheet-name-unsupported"}),
+    );
+    refused(
+        "quantize",
+        SCHEMA,
+        &POLICY.replace("\"amount\"", "\"missing\""),
+        ROWS,
+        60,
+        "refused",
+        json!({"category": "schema-mismatch", "rule": "quantize-unknown-column"}),
+    );
+    refused(
+        "policy-json",
+        SCHEMA,
+        "{",
+        ROWS,
+        61,
+        "refused",
+        json!({"category": "invalid-input", "rule": "policy-malformed"}),
+    );
+    refused(
+        "policy-member",
+        SCHEMA,
+        &POLICY.replace("\"sheet\"", "\"extra\":1,\"sheet\""),
+        ROWS,
+        61,
+        "refused",
+        json!({"category": "invalid-input", "rule": "policy-member-unknown"}),
+    );
+}
+
+#[test]
+fn document_and_file_failures_are_classified() {
+    use serde_json::json;
+    let case = Case::new(
+        "schema-type",
+        &SCHEMA.replace("\"boolean\"", "\"uuid\""),
+        POLICY,
+        ROWS,
+    );
+    assert_eq!(case.run(&[]).status.code(), Some(62));
+    let result = case.result();
+    assert_eq!(
+        result["refusal"],
+        json!({"category": "unsupported-type", "rule": "schema-type-unsupported"})
+    );
+    assert!(result.get("policy_digest").is_none() && result.get("limits").is_none());
+
+    let case = Case::new("schema-utf8", SCHEMA, POLICY, ROWS);
+    fs::write(case.dir.join("schema.json"), [0xff_u8, 0xfe]).unwrap();
+    assert_eq!(case.run(&[]).status.code(), Some(61));
+    assert_eq!(case.result()["refusal"]["rule"], "schema-not-utf8");
+
+    for (missing, rule) in [
+        ("rows.ndjson", "rows-not-found"),
+        ("schema.json", "schema-not-found"),
+        ("policy.json", "policy-not-found"),
+    ] {
+        let case = Case::new(&format!("missing-{rule}"), SCHEMA, POLICY, ROWS);
+        fs::remove_file(case.dir.join(missing)).unwrap();
+        assert_eq!(case.run(&[]).status.code(), Some(51), "{missing}");
+        let result = case.result();
+        assert_eq!(result["status"], "failed");
+        assert_eq!(
+            result["refusal"],
+            json!({"category": "io-failure", "rule": rule})
+        );
+        assert!(result["inputs"]
+            .get(missing.split('.').next().unwrap())
+            .is_none());
+        assert!(!case.dir.join("out.xlsx").exists());
+    }
+}
+
+#[test]
+fn a_missing_output_directory_fails_without_staging_elsewhere() {
+    let case = Case::new("no-directory", SCHEMA, POLICY, ROWS);
+    let output = case.path("absent/out.xlsx");
+    let run = case.run(&["--output", &output]);
+    assert_eq!(run.status.code(), Some(54));
+    assert_eq!(
+        case.result()["refusal"],
+        serde_json::json!({"category": "io-failure", "rule": "output-create-failed"})
+    );
+    assert_eq!(
+        case.names(),
+        ["policy.json", "result.json", "rows.ndjson", "schema.json"]
+    );
+}
+
+#[test]
+fn capabilities_list_the_conversion() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tablebolt"))
+        .args(["capabilities", "--json"])
+        .output()
+        .unwrap();
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        value["conversions"],
+        serde_json::json!([{"source": "ndjson", "destination": "xlsx"}])
+    );
+}

@@ -22,7 +22,7 @@ make check-platform
 ```
 
 This checks formatting, runs Clippy with warnings denied, runs the tests, runs
-the built `tablebolt` binary, and checks the leaf-dependency rule, tracked
+the built `tablebolt` binary, and checks the dependency rule, tracked
 files for local paths, keys and tokens, and that every version site matches
 `VERSION`.
 

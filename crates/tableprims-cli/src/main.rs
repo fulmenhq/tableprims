@@ -7,25 +7,40 @@
 //! | Code | Meaning |
 //! | ---- | ------- |
 //! | 0    | success |
-//! | 54   | output could not be written |
+//! | 1    | internal failure |
+//! | 33   | the system ran out of storage or memory |
+//! | 50   | permission denied |
+//! | 51   | an input file does not exist |
+//! | 53   | an input could not be read, or changed while it was read |
+//! | 54   | output could not be written, or its name already exists |
+//! | 60   | a value does not fit the schema, or a configured limit was exceeded |
+//! | 61   | malformed input |
+//! | 62   | a type or value the destination cannot represent under the policy |
 //! | 64   | command-line usage error |
 //!
 //! A broken pipe while printing is treated as success: the reader chose to stop.
 //! Any other failure to write requested output, including help text, exits 54.
+//!
+//! A conversion prints nothing to stdout. Its outcome is the exit code and
+//! the result file.
 
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
+mod digest;
 mod identity;
+mod publish;
+mod xlsx_write;
 
 /// Success.
 const EXIT_SUCCESS: u8 = 0;
 /// Output could not be written (`EXIT_FILE_WRITE_ERROR`).
-const EXIT_FILE_WRITE_ERROR: u8 = 54;
+const EXIT_FILE_WRITE_ERROR: u8 = xlsx_write::EXIT_FILE_WRITE_ERROR;
 /// Command-line usage error (`EXIT_USAGE`).
 const EXIT_USAGE: u8 = 64;
 
@@ -54,6 +69,36 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Convert to and from XLSX workbooks.
+    Xlsx {
+        #[command(subcommand)]
+        command: XlsxCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum XlsxCommand {
+    /// Write rows to a new workbook and record the outcome in a result file.
+    Write {
+        /// Rows: one JSON array of null, booleans and strings per line.
+        #[arg(long, value_name = "FILE")]
+        input: PathBuf,
+        /// Schema document.
+        #[arg(long, value_name = "FILE")]
+        schema: PathBuf,
+        /// Policy document.
+        #[arg(long, value_name = "FILE")]
+        policy: PathBuf,
+        /// Workbook to create. An existing file is never replaced.
+        #[arg(long, value_name = "FILE")]
+        output: PathBuf,
+        /// Result file to create. An existing file is never replaced.
+        #[arg(long, value_name = "FILE")]
+        result: PathBuf,
+        /// Identifier copied into the result file. Generated when absent.
+        #[arg(long, value_name = "ID", value_parser = xlsx_write::parse_run_id)]
+        run_id: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -65,6 +110,37 @@ fn main() -> ExitCode {
     let rendered = match cli.command {
         Command::Version { json } => version(json),
         Command::Capabilities { json } => capabilities(json),
+        Command::Xlsx {
+            command:
+                XlsxCommand::Write {
+                    input,
+                    schema,
+                    policy,
+                    output,
+                    result,
+                    run_id,
+                },
+        } => {
+            if output == result {
+                diagnostic(&format!(
+                    "{}: --output and --result name the same file\n",
+                    identity::BINARY_NAME
+                ));
+                return ExitCode::from(EXIT_USAGE);
+            }
+            let files = xlsx_write::Files {
+                input,
+                schema,
+                policy,
+                output,
+                result,
+            };
+            let (code, line) = xlsx_write::run(&files, run_id);
+            if let Some(line) = line {
+                diagnostic(&format!("{}: {line}\n", identity::BINARY_NAME));
+            }
+            return ExitCode::from(code);
+        }
     };
 
     finish(&rendered)
@@ -121,12 +197,22 @@ fn version(as_json: bool) -> String {
     }
 }
 
+/// The conversions this build offers: the library's and the adapters'.
+fn conversions() -> Vec<(&'static str, &'static str)> {
+    let mut list: Vec<_> = tableprims::conversions()
+        .iter()
+        .map(|c| (c.source, c.destination))
+        .collect();
+    list.push(("ndjson", "xlsx"));
+    list
+}
+
 fn capabilities(as_json: bool) -> String {
-    let conversions = tableprims::conversions();
+    let conversions = conversions();
     if as_json {
         let list: Vec<_> = conversions
             .iter()
-            .map(|c| json!({ "source": c.source, "destination": c.destination }))
+            .map(|(source, destination)| json!({ "source": source, "destination": destination }))
             .collect();
         let value = json!({
             "name": identity::BINARY_NAME,
@@ -134,12 +220,10 @@ fn capabilities(as_json: bool) -> String {
             "conversions": list,
         });
         format!("{value}\n")
-    } else if conversions.is_empty() {
-        "No conversions are implemented in this build.\n".to_owned()
     } else {
         conversions
             .iter()
-            .map(|c| format!("{} -> {}\n", c.source, c.destination))
+            .map(|(source, destination)| format!("{source} -> {destination}\n"))
             .collect()
     }
 }

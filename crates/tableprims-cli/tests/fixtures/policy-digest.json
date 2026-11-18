@@ -1,0 +1,62 @@
+{
+  "profile_definition": "{\"backend\":{\"features\":[\"constant_memory\"],\"name\":\"rust_xlsxwriter\",\"version\":\"0.102.0\"},\"format\":\"tableprims.profile/0\",\"id\":\"xlsx-write/r1\",\"limits\":{\"default_max_line_bytes\":1048576,\"max_cell_units\":32767,\"max_columns\":16384,\"max_empty_ranges\":65536,\"max_line_bytes\":16777216,\"max_rows\":1048575},\"metadata\":{\"header_rows\":1,\"layout\":\"1\",\"ranges_per_record\":512,\"sheet\":\"_tableprims\"},\"native\":{\"max_format_scale\":30,\"max_significant_digits\":15}}",
+  "profile_sha256": "44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4",
+  "cases": [
+    {
+      "name": "defaults",
+      "schema": "{\"format\":\"tableprims.schema/0\",\"columns\":[{\"id\":\"a\",\"label\":\"A\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true},{\"id\":\"b\",\"label\":\"B\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true}]}",
+      "policy": "{\"format\":\"tableprims.policy/0\",\"exact_numbers\":\"require-exact\",\"sheet\":\"Data\"}",
+      "canonical": "{\"exact_numbers\":\"require-exact\",\"format\":\"tableprims.resolved-policy/0\",\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1048575},\"profile\":{\"id\":\"xlsx-write/r1\",\"sha256\":\"44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4\"},\"quantize\":[],\"sheet\":\"Data\"}",
+      "sha256": "0c0737dd594f7f9c3a24af8a95b81e40ba916e8065b28af938be6e0eb0d2ca6b"
+    },
+    {
+      "name": "members reordered",
+      "schema": "{\"format\":\"tableprims.schema/0\",\"columns\":[{\"id\":\"a\",\"label\":\"A\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true},{\"id\":\"b\",\"label\":\"B\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true}]}",
+      "policy": "{ \"sheet\" : \"Data\",\n  \"exact_numbers\" : \"require-exact\",\n  \"format\" : \"tableprims.policy/0\" }",
+      "canonical": "{\"exact_numbers\":\"require-exact\",\"format\":\"tableprims.resolved-policy/0\",\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1048575},\"profile\":{\"id\":\"xlsx-write/r1\",\"sha256\":\"44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4\"},\"quantize\":[],\"sheet\":\"Data\"}",
+      "sha256": "0c0737dd594f7f9c3a24af8a95b81e40ba916e8065b28af938be6e0eb0d2ca6b"
+    },
+    {
+      "name": "defaults written out",
+      "schema": "{\"format\":\"tableprims.schema/0\",\"columns\":[{\"id\":\"a\",\"label\":\"A\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true},{\"id\":\"b\",\"label\":\"B\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true}]}",
+      "policy": "{\"format\":\"tableprims.policy/0\",\"exact_numbers\":\"require-exact\",\"sheet\":\"Data\",\"quantize\":[],\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1048575}}",
+      "canonical": "{\"exact_numbers\":\"require-exact\",\"format\":\"tableprims.resolved-policy/0\",\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1048575},\"profile\":{\"id\":\"xlsx-write/r1\",\"sha256\":\"44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4\"},\"quantize\":[],\"sheet\":\"Data\"}",
+      "sha256": "0c0737dd594f7f9c3a24af8a95b81e40ba916e8065b28af938be6e0eb0d2ca6b"
+    },
+    {
+      "name": "escapes and characters outside ASCII",
+      "schema": "{\"format\":\"tableprims.schema/0\",\"columns\":[{\"id\":\"net \\\"\\u00e9\\\" \\\\ amount\",\"label\":\"N\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true}]}",
+      "policy": "{\"format\":\"tableprims.policy/0\",\"exact_numbers\":\"text-if-needed\",\"sheet\":\"Donn\\u00e9es \\u2603\",\"quantize\":[{\"column\":\"net \\\"\\u00e9\\\" \\\\ amount\",\"scale\":2,\"rounding\":\"half-away-from-zero\"}]}",
+      "canonical": "{\"exact_numbers\":\"text-if-needed\",\"format\":\"tableprims.resolved-policy/0\",\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1048575},\"profile\":{\"id\":\"xlsx-write/r1\",\"sha256\":\"44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4\"},\"quantize\":[{\"column\":\"net \\\"é\\\" \\\\ amount\",\"rounding\":\"half-away-from-zero\",\"scale\":2}],\"sheet\":\"Données ☃\"}",
+      "sha256": "8dbc06adcfdb2b02e293329f25ab43c41307a9d36c9da09314df2952aa9d215d"
+    },
+    {
+      "name": "quantize entries in schema order",
+      "schema": "{\"format\":\"tableprims.schema/0\",\"columns\":[{\"id\":\"a\",\"label\":\"A\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true},{\"id\":\"b\",\"label\":\"B\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true}]}",
+      "policy": "{\"format\":\"tableprims.policy/0\",\"exact_numbers\":\"require-exact\",\"sheet\":\"Data\",\"quantize\":[{\"column\":\"a\",\"scale\":2,\"rounding\":\"half-even\"},{\"column\":\"b\",\"scale\":0,\"rounding\":\"toward-zero\"}]}",
+      "canonical": "{\"exact_numbers\":\"require-exact\",\"format\":\"tableprims.resolved-policy/0\",\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1048575},\"profile\":{\"id\":\"xlsx-write/r1\",\"sha256\":\"44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4\"},\"quantize\":[{\"column\":\"a\",\"rounding\":\"half-even\",\"scale\":2},{\"column\":\"b\",\"rounding\":\"toward-zero\",\"scale\":0}],\"sheet\":\"Data\"}",
+      "sha256": "40d52a23e4fe3fe87f5c3d75e4f58095719410b3e03a733e8cf0d6ff567833c0"
+    },
+    {
+      "name": "quantize entries in another order",
+      "schema": "{\"format\":\"tableprims.schema/0\",\"columns\":[{\"id\":\"a\",\"label\":\"A\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true},{\"id\":\"b\",\"label\":\"B\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true}]}",
+      "policy": "{\"format\":\"tableprims.policy/0\",\"exact_numbers\":\"require-exact\",\"sheet\":\"Data\",\"quantize\":[{\"rounding\":\"toward-zero\",\"scale\":0,\"column\":\"b\"},{\"column\":\"a\",\"scale\":2,\"rounding\":\"half-even\"}]}",
+      "canonical": "{\"exact_numbers\":\"require-exact\",\"format\":\"tableprims.resolved-policy/0\",\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1048575},\"profile\":{\"id\":\"xlsx-write/r1\",\"sha256\":\"44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4\"},\"quantize\":[{\"column\":\"a\",\"rounding\":\"half-even\",\"scale\":2},{\"column\":\"b\",\"rounding\":\"toward-zero\",\"scale\":0}],\"sheet\":\"Data\"}",
+      "sha256": "40d52a23e4fe3fe87f5c3d75e4f58095719410b3e03a733e8cf0d6ff567833c0"
+    },
+    {
+      "name": "one changed value",
+      "schema": "{\"format\":\"tableprims.schema/0\",\"columns\":[{\"id\":\"a\",\"label\":\"A\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true},{\"id\":\"b\",\"label\":\"B\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true}]}",
+      "policy": "{\"format\":\"tableprims.policy/0\",\"exact_numbers\":\"text-always\",\"sheet\":\"Data\"}",
+      "canonical": "{\"exact_numbers\":\"text-always\",\"format\":\"tableprims.resolved-policy/0\",\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1048575},\"profile\":{\"id\":\"xlsx-write/r1\",\"sha256\":\"44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4\"},\"quantize\":[],\"sheet\":\"Data\"}",
+      "sha256": "4269fe28784d5bd5db2f427f327b0ef70999270f53a3facadbedbe5127e54516"
+    },
+    {
+      "name": "a lowered limit",
+      "schema": "{\"format\":\"tableprims.schema/0\",\"columns\":[{\"id\":\"a\",\"label\":\"A\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true},{\"id\":\"b\",\"label\":\"B\",\"type\":\"decimal\",\"precision\":10,\"scale\":4,\"nullable\":true}]}",
+      "policy": "{\"format\":\"tableprims.policy/0\",\"exact_numbers\":\"require-exact\",\"sheet\":\"Data\",\"limits\":{\"max_rows\":1000}}",
+      "canonical": "{\"exact_numbers\":\"require-exact\",\"format\":\"tableprims.resolved-policy/0\",\"limits\":{\"max_empty_ranges\":65536,\"max_line_bytes\":1048576,\"max_rows\":1000},\"profile\":{\"id\":\"xlsx-write/r1\",\"sha256\":\"44f49505106650069733d6b386fec0c51a215452893118080a859947f51f3db4\"},\"quantize\":[],\"sheet\":\"Data\"}",
+      "sha256": "f74126487f3f7e81d711b0ff48271554f7614ccfd67fcda80a14d6a9efa5408a"
+    }
+  ]
+}

@@ -46,21 +46,18 @@ fn version_text_names_binary_and_library() {
 }
 
 #[test]
-fn capabilities_json_lists_no_conversions() {
+fn capabilities_json_lists_the_conversions() {
     let output = tablebolt(&["capabilities", "--json"]);
     assert_eq!(output.status.code(), Some(0));
     let value = stdout_json(&output);
-    assert_eq!(value["conversions"], Value::Array(Vec::new()));
+    assert_eq!(value["conversions"].as_array().map(Vec::len), Some(1));
 }
 
 #[test]
-fn capabilities_text_states_nothing_is_implemented() {
+fn capabilities_text_lists_the_conversions() {
     let output = tablebolt(&["capabilities"]);
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(
-        String::from_utf8(output.stdout).expect("utf-8 stdout"),
-        "No conversions are implemented in this build.\n"
-    );
+    assert_eq!(output.stdout, b"ndjson -> xlsx\n");
 }
 
 #[test]
