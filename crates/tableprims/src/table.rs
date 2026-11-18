@@ -7,7 +7,8 @@
 //! typed [`Value`]s by [`Schema::check_row`]. The scalar spelling never decides
 //! the type: the schema does. Exact numbers arrive as text and are parsed
 //! with the grammar in [`crate::exact`]; a string column keeps any text
-//! unchanged, including text that looks like a number.
+//! unchanged, including text that looks like a number. Dates and timestamps
+//! arrive as text and are parsed with the grammar in [`crate::temporal`].
 //!
 //! The set of logical types is provisional and lists only what is
 //! implemented.
@@ -16,6 +17,7 @@ use core::fmt;
 use std::collections::HashSet;
 
 use crate::exact::{Decimal, DecimalType, ExactError, Integer};
+use crate::temporal::{Date, FractionPrecision, LocalTimestamp, OffsetTimestamp, TemporalError};
 
 /// Logical type of a column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,6 +31,14 @@ pub enum LogicalType {
     Integer,
     /// Exact decimal with declared precision and scale.
     Decimal(DecimalType),
+    /// Calendar date.
+    Date,
+    /// Date and time of day with no offset, at a declared fractional
+    /// precision.
+    LocalTimestamp(FractionPrecision),
+    /// Date and time of day with a fixed offset from UTC, at a declared
+    /// fractional precision.
+    OffsetTimestamp(FractionPrecision),
 }
 
 /// One column of a schema.
@@ -159,8 +169,8 @@ impl Schema {
     /// # Errors
     ///
     /// Refuses a row of the wrong length, a null in a non-nullable column, a
-    /// scalar of the wrong kind for the column, and exact-number text outside
-    /// the declared grammar or bounds. Row length is checked before any cell:
+    /// scalar of the wrong kind for the column, and exact-number, date or
+    /// timestamp text outside the declared grammar or bounds. Row length is checked before any cell:
     /// a short row names its first missing column and a long row names none.
     /// Otherwise the error names the first offending column in schema order.
     /// An error never contains cell content.
@@ -208,9 +218,27 @@ fn check_cell(column: &Column, cell: Scalar<'_>) -> Result<Value, RowRule> {
         (LogicalType::Decimal(ty), Scalar::Text(text)) => Decimal::parse(text, ty)
             .map(Value::Decimal)
             .map_err(RowRule::InvalidExactNumber),
+        (LogicalType::Date, Scalar::Text(text)) => Date::parse(text)
+            .map(Value::Date)
+            .map_err(RowRule::InvalidTemporal),
+        (LogicalType::LocalTimestamp(precision), Scalar::Text(text)) => {
+            LocalTimestamp::parse(text, precision)
+                .map(Value::LocalTimestamp)
+                .map_err(RowRule::InvalidTemporal)
+        }
+        (LogicalType::OffsetTimestamp(precision), Scalar::Text(text)) => {
+            OffsetTimestamp::parse(text, precision)
+                .map(Value::OffsetTimestamp)
+                .map_err(RowRule::InvalidTemporal)
+        }
         (LogicalType::Boolean, Scalar::Text(_))
         | (
-            LogicalType::String | LogicalType::Integer | LogicalType::Decimal(_),
+            LogicalType::String
+            | LogicalType::Integer
+            | LogicalType::Decimal(_)
+            | LogicalType::Date
+            | LogicalType::LocalTimestamp(_)
+            | LogicalType::OffsetTimestamp(_),
             Scalar::Boolean(_),
         ) => Err(RowRule::WrongScalarKind),
     }
@@ -245,6 +273,12 @@ pub enum Value {
     Integer(Integer),
     /// Exact decimal at its declared scale.
     Decimal(Decimal),
+    /// Calendar date.
+    Date(Date),
+    /// Date and time of day with no offset.
+    LocalTimestamp(LocalTimestamp),
+    /// Date and time of day with a fixed offset, as written.
+    OffsetTimestamp(OffsetTimestamp),
 }
 
 /// The rule a row broke.
@@ -264,6 +298,9 @@ pub enum RowRule {
     WrongScalarKind,
     /// Text in an exact-number column is outside the grammar or bounds.
     InvalidExactNumber(ExactError),
+    /// Text in a date or timestamp column is outside the grammar or the
+    /// calendar.
+    InvalidTemporal(TemporalError),
 }
 
 /// A refused row, located by row index and column identifier.
@@ -308,6 +345,7 @@ impl fmt::Display for RowError {
             RowRule::NullNotAllowed => f.write_str(": null is not allowed"),
             RowRule::WrongScalarKind => f.write_str(": value kind does not match the column type"),
             RowRule::InvalidExactNumber(err) => write!(f, ": {err}"),
+            RowRule::InvalidTemporal(err) => write!(f, ": {err}"),
         }
     }
 }
@@ -316,6 +354,7 @@ impl std::error::Error for RowError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.rule {
             RowRule::InvalidExactNumber(err) => Some(err),
+            RowRule::InvalidTemporal(err) => Some(err),
             _ => None,
         }
     }
@@ -539,6 +578,59 @@ mod tests {
         assert_eq!(
             err.rule(),
             RowRule::InvalidExactNumber(ExactError::ScaleMismatch)
+        );
+    }
+
+    #[test]
+    fn temporal_columns_are_checked_and_located() {
+        let ms = FractionPrecision::new(3).unwrap();
+        let s = Schema::new(vec![
+            Column::new("day", "Day", LogicalType::Date, false),
+            Column::new("seen", "Seen", LogicalType::LocalTimestamp(ms), true),
+            Column::new("sent", "Sent", LogicalType::OffsetTimestamp(ms), true),
+        ])
+        .unwrap();
+        let row = s
+            .check_row(
+                0,
+                &[
+                    Scalar::Text("2024-02-29"),
+                    Scalar::Text("2024-02-29T12:00:00.000"),
+                    Scalar::Text("2024-02-29T12:00:00.250+05:30"),
+                ],
+            )
+            .unwrap();
+        match &row[2] {
+            Value::OffsetTimestamp(v) => {
+                assert_eq!(v.to_string(), "2024-02-29T12:00:00.250+05:30");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        let err = s
+            .check_row(
+                4,
+                &[
+                    Scalar::Text("2024-02-29"),
+                    Scalar::Null,
+                    Scalar::Text("2024-02-29T12:00:00.250"),
+                ],
+            )
+            .unwrap_err();
+        assert_eq!((err.row(), err.column()), (4, Some("sent")));
+        assert_eq!(
+            err.rule(),
+            RowRule::InvalidTemporal(TemporalError::InvalidOffset)
+        );
+        let err = s
+            .check_row(0, &[Scalar::Boolean(true), Scalar::Null, Scalar::Null])
+            .unwrap_err();
+        assert_eq!(err.rule(), RowRule::WrongScalarKind);
+        let err = s
+            .check_row(0, &[Scalar::Text("2023-02-29"), Scalar::Null, Scalar::Null])
+            .unwrap_err();
+        assert_eq!(
+            err.rule(),
+            RowRule::InvalidTemporal(TemporalError::InvalidDate)
         );
     }
 
