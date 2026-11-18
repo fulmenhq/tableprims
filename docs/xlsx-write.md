@@ -91,7 +91,10 @@ for it.
 A run is complete only when the result file exists, its `status` is `ok` and
 its `output` digest and length match the workbook. The workbook is published
 first and the result file second, so a workbook without a matching result is
-incomplete.
+incomplete, whatever is at the `--output` name. The result file is opened
+before the conversion starts; if it still cannot be published afterwards, the
+run fails and removes the workbook it published where the system lets it
+tell that file from another put under the same name.
 
 ```json
 {
@@ -167,9 +170,10 @@ This version installs no signal handler. An interrupt or a kill ends the
 process at once: a supervisor sees death by signal, not exit code 130 or 143,
 and no result file with status `cancelled` is produced; those codes and that
 status are reserved. Nothing is left under the `--output` or `--result` name,
-because each is published only when complete. A temporary file named
-`.<name>.<32 hexadecimal digits>.tmp` can remain beside either and may be
-deleted.
+because each is published only when complete. Temporary files can remain
+beside either and may be deleted: this program's are named
+`.tablebolt-<32 hexadecimal digits>.workbook.tmp` and `….result.tmp`, and the
+workbook writer's scratch files `.tmp` followed by six characters.
 
 ## Limits
 

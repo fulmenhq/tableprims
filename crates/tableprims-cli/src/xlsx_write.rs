@@ -19,7 +19,7 @@ use tableprims_xlsx::{Category, ErrorKind, Outcome, Plan, ResolvedLimits, WriteE
 
 use crate::digest::{self, HashingReader, HashingWriter, Sum};
 use crate::identity;
-use crate::publish::{directory, Pending};
+use crate::publish::{directory, same_entry, Pending, Published};
 
 /// Format identifier of the result file.
 pub(crate) const RESULT_FORMAT: &str = "tableprims.result/0";
@@ -38,6 +38,7 @@ pub(crate) const EXIT_DATA_INVALID: u8 = 60;
 pub(crate) const EXIT_PARSE_ERROR: u8 = 61;
 pub(crate) const EXIT_TRANSFORMATION_FAILED: u8 = 62;
 pub(crate) const EXIT_SIGNAL_INT: u8 = 130;
+pub(crate) const EXIT_USAGE: u8 = 64;
 
 /// The files of one invocation.
 pub(crate) struct Files {
@@ -249,6 +250,7 @@ struct Report {
 struct Done {
     outcome: Outcome,
     output: Sum,
+    published: Published,
 }
 
 fn sum_json(sum: &Sum) -> Value {
@@ -375,7 +377,7 @@ fn convert(files: &Files, token: &str, report: &mut Report) -> Result<Done, Fail
         .map_err(|error| read_failure(&ROWS, &error))?;
     report.rows = Some(first.clone());
 
-    let (pending, file) = Pending::create(&files.output, token)
+    let (pending, file) = Pending::create(&files.output, token, "workbook")
         .map_err(|error| write_failure("output-create-failed", &error))?;
     let mut sink = HashingWriter::new(BufWriter::new(file));
     let mut second = open_rows(&files.input)?;
@@ -402,13 +404,17 @@ fn convert(files: &Files, token: &str, report: &mut Report) -> Result<Done, Fail
     file.sync_all()
         .map_err(|error| write_failure("output-write-failed", &error))?;
     drop(file);
-    pending.publish().map_err(|error| match error.kind() {
+    let published = pending.publish().map_err(|error| match error.kind() {
         io::ErrorKind::AlreadyExists => {
             Failure::new(Category::IoFailure, "output-exists", EXIT_FILE_WRITE_ERROR)
         }
         _ => write_failure("output-publish-failed", &error),
     })?;
-    Ok(Done { outcome, output })
+    Ok(Done {
+        outcome,
+        output,
+        published,
+    })
 }
 
 fn counts_json(outcome: &Outcome) -> Value {
@@ -497,12 +503,11 @@ fn result_json(run_id: &str, report: &Report, end: &Result<Done, Failure>) -> Va
     Value::Object(result)
 }
 
-fn publish_result(path: &Path, token: &str, result: &Value) -> io::Result<()> {
-    let (pending, mut file) = Pending::create(path, token)?;
+fn publish_result(pending: Pending, mut file: File, result: &Value) -> io::Result<()> {
     file.write_all(format!("{result}\n").as_bytes())?;
     file.sync_all()?;
     drop(file);
-    pending.publish()
+    pending.publish().map(|_| ())
 }
 
 /// 16 bytes from the operating system as lowercase hexadecimal.
@@ -535,21 +540,45 @@ pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>)
         );
     };
     let run_id = run_id.unwrap_or_else(|| format!("auto-{token}"));
+    if same_entry(&files.output, &files.result) {
+        return (
+            EXIT_USAGE,
+            Some(String::from("--output and --result name the same file")),
+        );
+    }
     if files.result.exists() {
         return (
             EXIT_FILE_WRITE_ERROR,
             Some(String::from("the result file already exists")),
         );
     }
+    // The result file is opened before anything is converted, so a result
+    // that cannot be created stops the run before a workbook exists.
+    let (pending, file) = match Pending::create(&files.result, &token, "result") {
+        Ok(reserved) => reserved,
+        Err(error) => {
+            return (
+                write_failure("result-write-failed", &error).exit,
+                Some(format!("cannot create the result file ({})", error.kind())),
+            );
+        }
+    };
     let mut report = Report::default();
     let end = convert(files, &token, &mut report);
     let result = result_json(&run_id, &report, &end);
-    if let Err(error) = publish_result(&files.result, &token, &result) {
+    if let Err(error) = publish_result(pending, file, &result) {
         let exit = write_failure("result-write-failed", &error).exit;
+        // A workbook without its result is incomplete. Take it back when
+        // the name still refers to the file this run published.
+        let workbook = match &end {
+            Ok(done) if done.published.withdraw() => "; the workbook was removed",
+            Ok(_) => "; the workbook at --output has no result and is incomplete",
+            Err(_) => "",
+        };
         return (
             exit,
             Some(format!(
-                "cannot write the result file ({}); the run is incomplete",
+                "cannot write the result file ({}){workbook}",
                 error.kind()
             )),
         );

@@ -42,7 +42,7 @@ const EXIT_SUCCESS: u8 = 0;
 /// Output could not be written (`EXIT_FILE_WRITE_ERROR`).
 const EXIT_FILE_WRITE_ERROR: u8 = xlsx_write::EXIT_FILE_WRITE_ERROR;
 /// Command-line usage error (`EXIT_USAGE`).
-const EXIT_USAGE: u8 = 64;
+const EXIT_USAGE: u8 = xlsx_write::EXIT_USAGE;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -121,13 +121,6 @@ fn main() -> ExitCode {
                     run_id,
                 },
         } => {
-            if output == result {
-                diagnostic(&format!(
-                    "{}: --output and --result name the same file\n",
-                    identity::BINARY_NAME
-                ));
-                return ExitCode::from(EXIT_USAGE);
-            }
             let files = xlsx_write::Files {
                 input,
                 schema,

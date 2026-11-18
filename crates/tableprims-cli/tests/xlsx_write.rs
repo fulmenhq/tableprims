@@ -412,14 +412,8 @@ fn capabilities_list_the_conversion() {
     );
 }
 
-/// Without a signal handler a kill ends the process where it stands. The
-/// workbook is only ever published under its name when complete, so nothing
-/// may be at the destination, and what remains is a recognisable temporary.
-#[test]
-fn a_killed_run_leaves_no_workbook_and_no_result() {
-    let rows = "[\"INV-1\",\"3\",\"12.3450\",true]\n".repeat(400_000);
-    let case = Case::new("killed", SCHEMA, POLICY, &rows);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_tablebolt"))
+fn spawn_long(case: &Case) -> std::process::Child {
+    Command::new(env!("CARGO_BIN_EXE_tablebolt"))
         .args(["xlsx", "write", "--input"])
         .arg(case.path("rows.ndjson"))
         .arg("--schema")
@@ -430,15 +424,20 @@ fn a_killed_run_leaves_no_workbook_and_no_result() {
         .arg(case.path("out.xlsx"))
         .arg("--result")
         .arg(case.path("result.json"))
+        .stderr(std::process::Stdio::piped())
         .spawn()
-        .unwrap();
-    // The temporary appears when the second read starts.
-    let temporary = |name: &String| name.starts_with(".out.xlsx.") && name.ends_with(".tmp");
+        .unwrap()
+}
+
+/// Waits until the run has started writing its workbook.
+fn wait_for_workbook_temporary(case: &Case, child: &mut std::process::Child) {
+    let workbook =
+        |name: &String| name.starts_with(".tablebolt-") && name.ends_with(".workbook.tmp");
     let started = std::time::Instant::now();
-    while !case.names().iter().any(temporary) {
+    while !case.names().iter().any(workbook) {
         assert!(
             child.try_wait().unwrap().is_none(),
-            "the run ended before it could be killed"
+            "the run ended before its workbook was started"
         );
         assert!(
             started.elapsed().as_secs() < 60,
@@ -446,15 +445,96 @@ fn a_killed_run_leaves_no_workbook_and_no_result() {
         );
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
+}
+
+fn long_rows(count: usize) -> String {
+    "[\"INV-1\",\"3\",\"12.3450\",true]\n".repeat(count)
+}
+
+/// Without a signal handler a kill ends the process where it stands. The
+/// workbook is only ever published under its name when complete, so nothing
+/// may be at the destination. What can remain is this program's temporary
+/// files and the workbook writer's scratch files.
+#[test]
+fn a_killed_run_leaves_no_workbook_and_no_result() {
+    let case = Case::new("killed", SCHEMA, POLICY, &long_rows(400_000));
+    let mut child = spawn_long(&case);
+    wait_for_workbook_temporary(&case, &mut child);
     child.kill().unwrap();
     assert!(!child.wait().unwrap().success());
     let names = case.names();
     assert!(!names.contains(&"out.xlsx".to_owned()), "{names:?}");
     assert!(!names.contains(&"result.json".to_owned()), "{names:?}");
     for name in names {
-        assert!(
-            INPUTS.contains(&name.as_str()) || temporary(&name),
-            "{name}"
-        );
+        let ours = name.starts_with(".tablebolt-") && name.ends_with(".tmp");
+        let scratch = name.starts_with(".tmp");
+        assert!(INPUTS.contains(&name.as_str()) || ours || scratch, "{name}");
     }
+}
+
+#[test]
+fn paths_that_name_one_file_are_a_usage_error() {
+    let case = Case::new("alias", SCHEMA, POLICY, ROWS);
+    let spelled = case.dir.join(".").join("out.xlsx");
+    let run = case.run(&["--result", spelled.to_str().unwrap()]);
+    assert_eq!(run.status.code(), Some(64));
+    assert_eq!(case.names(), INPUTS);
+}
+
+/// A result that cannot be created stops the run before a workbook exists.
+#[cfg(unix)]
+#[test]
+fn an_unwritable_result_directory_fails_before_the_workbook() {
+    use std::os::unix::fs::PermissionsExt;
+    let case = Case::new("result-directory", SCHEMA, POLICY, ROWS);
+    let locked = case.dir.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    if fs::write(locked.join("probe"), b"").is_ok() {
+        // Running with privileges that ignore the mode: nothing to test.
+        return;
+    }
+    let run = case.run(&["--result", locked.join("result.json").to_str().unwrap()]);
+    assert_eq!(run.status.code(), Some(50));
+    assert_eq!(
+        case.names(),
+        ["locked", "policy.json", "rows.ndjson", "schema.json"]
+    );
+    assert_eq!(fs::read_dir(&locked).unwrap().count(), 0);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A result name taken while the run is under way: the run fails, the other
+/// file is kept, and the workbook this run published is taken back.
+#[cfg(unix)]
+#[test]
+fn a_workbook_whose_result_cannot_be_published_is_removed() {
+    let case = Case::new("orphan", SCHEMA, POLICY, &long_rows(100_000));
+    let mut child = spawn_long(&case);
+    wait_for_workbook_temporary(&case, &mut child);
+    fs::write(case.dir.join("result.json"), b"theirs").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(54));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("the workbook was removed"));
+    assert_eq!(fs::read(case.dir.join("result.json")).unwrap(), b"theirs");
+    assert_eq!(
+        case.names(),
+        ["policy.json", "result.json", "rows.ndjson", "schema.json"]
+    );
+}
+
+#[test]
+fn a_long_destination_name_is_accepted() {
+    let case = Case::new("long-name", SCHEMA, POLICY, ROWS);
+    let output = format!("{}.xlsx", "w".repeat(250));
+    let result = format!("{}.json", "r".repeat(250));
+    let run = case.run(&[
+        "--output",
+        &case.path(&output),
+        "--result",
+        &case.path(&result),
+    ]);
+    assert_eq!(run.status.code(), Some(0));
+    assert!(case.dir.join(&output).exists() && case.dir.join(&result).exists());
+    assert_eq!(case.names().len(), 5);
 }
