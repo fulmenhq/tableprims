@@ -160,8 +160,10 @@ impl Schema {
     ///
     /// Refuses a row of the wrong length, a null in a non-nullable column, a
     /// scalar of the wrong kind for the column, and exact-number text outside
-    /// the declared grammar or bounds. The error names the first offending
-    /// column in schema order and never contains cell content.
+    /// the declared grammar or bounds. Row length is checked before any cell:
+    /// a short row names its first missing column and a long row names none.
+    /// Otherwise the error names the first offending column in schema order.
+    /// An error never contains cell content.
     pub fn check_row(&self, row: u64, cells: &[Scalar<'_>]) -> Result<Vec<Value>, RowError> {
         if cells.len() != self.columns.len() {
             // A short row is located at the first missing column; a long row
