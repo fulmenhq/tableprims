@@ -40,6 +40,9 @@ pub const BACKEND_NAME: &str = "rust_xlsxwriter";
 /// Version of the workbook writer this profile is pinned to.
 pub const BACKEND_VERSION: &str = "0.102.0";
 
+// The limits below and the record layout in `metadata` are settings of the
+// profile named by `PROFILE_ID`; changing one changes the profile.
+
 /// Largest number of data rows: a worksheet's rows less the header row.
 pub const MAX_ROWS: u64 = 1_048_575;
 /// Largest number of columns in a worksheet.

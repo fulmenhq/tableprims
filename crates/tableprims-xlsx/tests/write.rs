@@ -681,6 +681,24 @@ fn rows_that_do_not_fit_are_refused_with_a_location() {
             Category::SchemaMismatch,
             "exact-point-mismatch",
         ),
+        (
+            "[\"1.0\",null]\n",
+            Category::SchemaMismatch,
+            "exact-point-mismatch",
+        ),
+        ("[\".5\",null]\n", Category::InvalidInput, "exact-malformed"),
+        ("[null,\".5\"]\n", Category::InvalidInput, "exact-malformed"),
+        ("[null,\"1.\"]\n", Category::InvalidInput, "exact-malformed"),
+        (
+            "[null,\"1..2\"]\n",
+            Category::InvalidInput,
+            "exact-malformed",
+        ),
+        (
+            "[\"123456789012345678901234567890123456789\",null]\n",
+            Category::ResourceLimit,
+            "exact-too-many-digits",
+        ),
     ] {
         let error = refusal(write(NUMBERS, &exact, rows));
         assert_eq!(

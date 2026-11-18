@@ -40,6 +40,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   back as the source value; otherwise the policy refuses the value or writes
   the column as text. Types, scale, nullability and empty strings are
   recorded on a hidden `_tableprims` worksheet. The CLI does not use it yet.
+
+### Changed
+
+- Library module `exact`: the grammar and the 38-digit bound are checked
+  before the declared type. A misplaced or repeated decimal point is
+  `Malformed`, more than 38 significant digits is `DigitLimitExceeded`, and
+  an integer written with a decimal point is `PointMismatch`.
 - Build, format, lint, test, dependency and minimum-Rust-version checks.
 - `make check-platform` as the native gate: formatting, Clippy, tests, the
   `tablebolt` smoke run, the leaf-dependency rule, a content check for local

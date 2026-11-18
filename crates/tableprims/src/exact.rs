@@ -36,12 +36,18 @@ pub enum ExactError {
     LeadingZero,
     /// Zero written with a minus sign.
     NegativeZero,
-    /// A decimal point where the declared scale is zero, no decimal point
-    /// where it is positive, or no digit before the point.
+    /// A decimal point with no digit before it or after it, or more than one
+    /// decimal point.
+    Malformed,
+    /// More than [`MAX_DIGITS`] significant digits, whatever the declared
+    /// type.
+    DigitLimitExceeded,
+    /// A decimal point in an integer or where the declared scale is zero, or
+    /// no decimal point where the declared scale is positive.
     PointMismatch,
     /// The number of fractional digits differs from the declared scale.
     ScaleMismatch,
-    /// More digits than the declared precision, or than [`MAX_DIGITS`].
+    /// More significant digits than the declared precision.
     PrecisionExceeded,
     /// A precision outside `1..=MAX_DIGITS` or a scale above the precision.
     InvalidType,
@@ -56,6 +62,8 @@ impl fmt::Display for ExactError {
             Self::InvalidCharacter => "invalid character in exact value",
             Self::LeadingZero => "redundant leading zero in exact value",
             Self::NegativeZero => "zero written with a minus sign",
+            Self::Malformed => "malformed exact value",
+            Self::DigitLimitExceeded => "exact value has too many digits",
             Self::PointMismatch => "decimal point does not match the declared scale",
             Self::ScaleMismatch => "fractional digits differ from the declared scale",
             Self::PrecisionExceeded => "exact value exceeds the declared precision",
@@ -67,45 +75,65 @@ impl fmt::Display for ExactError {
 
 impl std::error::Error for ExactError {}
 
-/// Splits an optional leading minus sign from the rest of the text.
-fn split_sign(text: &str) -> (bool, &str) {
-    match text.strip_prefix('-') {
+/// An exact value split into its parts, before any declared type applies.
+struct Lexed<'a> {
+    negative: bool,
+    /// The digits after the decimal point, when the text has one.
+    fraction: Option<&'a str>,
+    /// The digits as a magnitude.
+    magnitude: i128,
+    /// Significant digits; zero has one.
+    significant: u8,
+}
+
+/// Checks the grammar `-?(0|[1-9][0-9]*)(\.[0-9]+)?`, refuses negative zero
+/// and more than [`MAX_DIGITS`] significant digits. These rules hold for
+/// every declared type, so they are checked before any of them.
+fn lex(text: &str) -> Result<Lexed<'_>, ExactError> {
+    let (negative, unsigned) = match text.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, text),
-    }
-}
-
-/// Checks `0|[1-9][0-9]*`.
-fn check_whole_digits(digits: &str) -> Result<(), ExactError> {
-    if digits.is_empty() {
+    };
+    if unsigned.is_empty() {
         return Err(ExactError::Empty);
     }
-    if !digits.bytes().all(|b| b.is_ascii_digit()) {
+    if !unsigned.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
         return Err(ExactError::InvalidCharacter);
     }
-    if digits.len() > 1 && digits.starts_with('0') {
+    let (whole, fraction) = match unsigned.split_once('.') {
+        None => (unsigned, None),
+        Some((whole, fraction)) => {
+            if whole.is_empty() || fraction.is_empty() || fraction.contains('.') {
+                return Err(ExactError::Malformed);
+            }
+            (whole, Some(fraction))
+        }
+    };
+    if whole.len() > 1 && whole.starts_with('0') {
         return Err(ExactError::LeadingZero);
     }
-    Ok(())
-}
-
-/// Folds ASCII digits into a magnitude, refusing more than `max_digits`
-/// significant digits. Leading zeros do not count; zero counts as one digit.
-fn magnitude(digit_runs: [&str; 2], max_digits: u8) -> Result<i128, ExactError> {
-    let mut value: i128 = 0;
+    let mut magnitude: i128 = 0;
     let mut significant: u8 = 0;
-    for byte in digit_runs.iter().flat_map(|run| run.bytes()) {
-        if value != 0 || byte != b'0' {
+    for byte in whole.bytes().chain(fraction.unwrap_or("").bytes()) {
+        if magnitude != 0 || byte != b'0' {
             significant += 1;
-            if significant > max_digits {
-                return Err(ExactError::PrecisionExceeded);
+            if significant > MAX_DIGITS {
+                return Err(ExactError::DigitLimitExceeded);
             }
         }
         // At most MAX_DIGITS significant digits reach here, and
         // 10^38 - 1 < i128::MAX, so this cannot overflow.
-        value = value * 10 + i128::from(byte - b'0');
+        magnitude = magnitude * 10 + i128::from(byte - b'0');
     }
-    Ok(value)
+    if negative && magnitude == 0 {
+        return Err(ExactError::NegativeZero);
+    }
+    Ok(Lexed {
+        negative,
+        fraction,
+        magnitude,
+        significant: significant.max(1),
+    })
 }
 
 /// Number of decimal digits in a coefficient; zero has one.
@@ -134,16 +162,18 @@ impl Integer {
     ///
     /// # Errors
     ///
-    /// Returns an [`ExactError`] when the text is not canonical or has more
-    /// than [`MAX_DIGITS`] digits.
+    /// Returns an [`ExactError`] when the text is not canonical, has more
+    /// than [`MAX_DIGITS`] digits or has a decimal point.
     pub fn parse(text: &str) -> Result<Self, ExactError> {
-        let (negative, digits) = split_sign(text);
-        check_whole_digits(digits)?;
-        let value = magnitude([digits, ""], MAX_DIGITS)?;
-        if negative && value == 0 {
-            return Err(ExactError::NegativeZero);
+        let lexed = lex(text)?;
+        if lexed.fraction.is_some() {
+            return Err(ExactError::PointMismatch);
         }
-        Ok(Self(if negative { -value } else { value }))
+        Ok(Self(if lexed.negative {
+            -lexed.magnitude
+        } else {
+            lexed.magnitude
+        }))
     }
 
     /// The value as a signed integer.
@@ -236,38 +266,26 @@ impl Decimal {
     ///
     /// Returns an [`ExactError`] when the text is not canonical, its
     /// fractional digits differ from the declared scale, or its coefficient
-    /// has more significant digits than the declared precision.
+    /// has more significant digits than the declared precision. The grammar
+    /// and the [`MAX_DIGITS`] bound are checked before the declared type.
     pub fn parse(text: &str, ty: DecimalType) -> Result<Self, ExactError> {
-        let (negative, unsigned) = split_sign(text);
-        let (whole, fraction) = match (unsigned.split_once('.'), ty.scale) {
-            (None, 0) => (unsigned, ""),
-            (Some(_), 0) | (None, _) => {
-                if unsigned.is_empty() {
-                    return Err(ExactError::Empty);
-                }
-                if !unsigned.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
-                    return Err(ExactError::InvalidCharacter);
-                }
-                return Err(ExactError::PointMismatch);
-            }
-            (Some((whole, fraction)), _) => (whole, fraction),
-        };
-        if whole.is_empty() && !fraction.is_empty() {
+        let lexed = lex(text)?;
+        let fraction = lexed.fraction.unwrap_or("");
+        if lexed.fraction.is_some() != (ty.scale > 0) {
             return Err(ExactError::PointMismatch);
-        }
-        check_whole_digits(whole)?;
-        if !fraction.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(ExactError::InvalidCharacter);
         }
         if fraction.len() != usize::from(ty.scale) {
             return Err(ExactError::ScaleMismatch);
         }
-        let value = magnitude([whole, fraction], ty.precision)?;
-        if negative && value == 0 {
-            return Err(ExactError::NegativeZero);
+        if lexed.significant > ty.precision {
+            return Err(ExactError::PrecisionExceeded);
         }
         Ok(Self {
-            coefficient: if negative { -value } else { value },
+            coefficient: if lexed.negative {
+                -lexed.magnitude
+            } else {
+                lexed.magnitude
+            },
             scale: ty.scale,
         })
     }
@@ -476,12 +494,20 @@ mod tests {
             (" 1", ExactError::InvalidCharacter),
             ("1 ", ExactError::InvalidCharacter),
             ("1e3", ExactError::InvalidCharacter),
-            ("1.0", ExactError::InvalidCharacter),
+            ("1.0", ExactError::PointMismatch),
+            (".5", ExactError::Malformed),
+            ("1.", ExactError::Malformed),
+            ("1..2", ExactError::Malformed),
+            ("-0.0", ExactError::NegativeZero),
             ("--1", ExactError::InvalidCharacter),
             ("١٢٣", ExactError::InvalidCharacter),
             (
                 "100000000000000000000000000000000000000",
-                ExactError::PrecisionExceeded,
+                ExactError::DigitLimitExceeded,
+            ),
+            (
+                "1000000000000000000000000000000000000.0",
+                ExactError::PointMismatch,
             ),
         ];
         for (text, expected) in cases {
@@ -527,18 +553,31 @@ mod tests {
             ("123.45", 7, 4, ExactError::ScaleMismatch),
             ("123.45000", 9, 4, ExactError::ScaleMismatch),
             ("123", 7, 4, ExactError::PointMismatch),
-            ("123.", 7, 0, ExactError::PointMismatch),
+            ("123.", 7, 0, ExactError::Malformed),
             ("1.5", 3, 0, ExactError::PointMismatch),
-            (".5", 2, 1, ExactError::PointMismatch),
-            ("-.5", 2, 1, ExactError::PointMismatch),
-            ("1.", 2, 1, ExactError::ScaleMismatch),
+            (".5", 2, 1, ExactError::Malformed),
+            ("-.5", 2, 1, ExactError::Malformed),
+            ("1.", 2, 1, ExactError::Malformed),
+            ("1..2", 2, 1, ExactError::Malformed),
+            (".", 2, 1, ExactError::Malformed),
             ("01.5", 3, 1, ExactError::LeadingZero),
             ("-0.00", 2, 2, ExactError::NegativeZero),
             ("-0", 1, 0, ExactError::NegativeZero),
             ("+1.5", 2, 1, ExactError::InvalidCharacter),
             ("1.5e2", 4, 3, ExactError::InvalidCharacter),
             ("1,5", 2, 1, ExactError::InvalidCharacter),
-            ("1.2.3", 3, 1, ExactError::InvalidCharacter),
+            ("1.2.3", 3, 1, ExactError::Malformed),
+            // Grammar and the global digit bound come before the declared type.
+            ("01.50", 3, 1, ExactError::LeadingZero),
+            ("-0.0", 2, 2, ExactError::NegativeZero),
+            (
+                "1234567890123456789012345678901234567.89",
+                5,
+                2,
+                ExactError::DigitLimitExceeded,
+            ),
+            ("123.45", 4, 2, ExactError::PrecisionExceeded),
+            ("1.0", 3, 2, ExactError::ScaleMismatch),
             ("", 2, 1, ExactError::Empty),
         ];
         for (text, precision, scale, expected) in cases {

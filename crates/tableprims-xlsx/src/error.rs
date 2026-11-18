@@ -64,6 +64,8 @@ pub enum ErrorKind {
     UnsupportedRounding,
     /// The schema has more columns than a worksheet.
     TooManyColumns,
+    /// The worksheet name is the one reserved for table metadata.
+    SheetNameReserved,
     /// The worksheet name is not valid in a workbook.
     SheetNameUnsupported,
     /// A string is longer than one cell can hold.
@@ -187,6 +189,7 @@ impl WriteError {
             ErrorKind::UnsupportedType => (C::UnsupportedType, "unsupported-type"),
             ErrorKind::UnsupportedRounding => (C::UnsupportedType, "unsupported-rounding"),
             ErrorKind::TooManyColumns => (C::ResourceLimit, "too-many-columns"),
+            ErrorKind::SheetNameReserved => (C::SchemaMismatch, "sheet-name-reserved"),
             ErrorKind::SheetNameUnsupported => {
                 (C::UnsupportedRepresentation, "sheet-name-unsupported")
             }
@@ -216,6 +219,8 @@ impl WriteError {
                     ExactError::InvalidCharacter => (C::InvalidInput, "exact-invalid-character"),
                     ExactError::LeadingZero => (C::InvalidInput, "exact-leading-zero"),
                     ExactError::NegativeZero => (C::InvalidInput, "exact-negative-zero"),
+                    ExactError::Malformed => (C::InvalidInput, "exact-malformed"),
+                    ExactError::DigitLimitExceeded => (C::ResourceLimit, "exact-too-many-digits"),
                     ExactError::PointMismatch => (C::SchemaMismatch, "exact-point-mismatch"),
                     ExactError::ScaleMismatch => (C::SchemaMismatch, "exact-scale-mismatch"),
                     ExactError::PrecisionExceeded => {

@@ -121,8 +121,10 @@ impl Plan {
             }
         }
         let sheet = policy.sheet();
-        let reserved = sheet.to_lowercase() == RESERVED_SHEET;
-        if reserved || rust_xlsxwriter::Worksheet::new().set_name(sheet).is_err() {
+        if sheet.eq_ignore_ascii_case(RESERVED_SHEET) {
+            return Err(WriteError::new(ErrorKind::SheetNameReserved));
+        }
+        if rust_xlsxwriter::Worksheet::new().set_name(sheet).is_err() {
             return Err(WriteError::new(ErrorKind::SheetNameUnsupported));
         }
         let quantize = policy
