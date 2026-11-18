@@ -9,7 +9,11 @@
 //! 2. [`Plan::scan`] reads the input once, validates every row and decides
 //!    how each column is stored.
 //! 3. [`Scan::write`] reads the input a second time and writes the
-//!    workbook. A second read that differs from the first is refused.
+//!    workbook. The second read must yield the cells of the first: a
+//!    different outcome is refused, and so is a difference in the cells
+//!    themselves, which a 64-bit fingerprint detects. The fingerprint is
+//!    not a digest; a caller that needs that assurance compares digests of
+//!    the bytes of both reads.
 //!
 //! An exact number is stored as a numeric cell only when the decimal text
 //! of the stored binary64 value equals the source value; see
@@ -22,6 +26,11 @@
 //!
 //! The adapter writes to a caller-supplied sink. Choosing the destination,
 //! refusing to overwrite and syncing are the caller's.
+//!
+//! The pinned workbook writer panics when it cannot write its temporary
+//! files. [`Scan::write`] catches that and returns an error, which needs a
+//! build that unwinds on panic; the panic message still reaches the panic
+//! hook.
 //!
 //! The formats are provisional and may change before the first release.
 

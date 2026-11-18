@@ -812,7 +812,42 @@ fn a_second_read_that_differs_is_refused() {
         )
         .unwrap_err();
     assert!(matches!(error.kind(), ErrorKind::InputChanged));
-    // A different input with the same outcome is the caller's to detect.
+    // Different cells with the same outcome are told apart as well.
+    for second in [
+        "[\"1\",\"1.246\"]\n[\"2\",null]\n",
+        "[\"2\",\"1.245\"]\n[\"1\",null]\n",
+    ] {
+        let mut bytes = Vec::new();
+        let error = scan(first, "require-exact")
+            .write(second.as_bytes(), &mut bytes, None, &never)
+            .unwrap_err();
+        assert!(matches!(error.kind(), ErrorKind::InputChanged), "{second}");
+    }
+    let never_text = AtomicBool::new(false);
+    let text = plan(TEXT, &policy("require-exact", ""))
+        .unwrap()
+        .scan("[\"first\",\"x\"]\n".as_bytes(), &never_text)
+        .unwrap();
+    let mut bytes = Vec::new();
+    let error = text
+        .write(
+            "[\"other\",\"x\"]\n".as_bytes(),
+            &mut bytes,
+            None,
+            &never_text,
+        )
+        .unwrap_err();
+    assert!(matches!(error.kind(), ErrorKind::InputChanged));
+    // The same cells spelled differently are the same input.
+    let mut bytes = Vec::new();
+    text.write(
+        "[ \"fir\\u0073t\" , \"x\" ]\n".as_bytes(),
+        &mut bytes,
+        None,
+        &never_text,
+    )
+    .unwrap();
+    // The same bytes are accepted.
     let mut bytes = Vec::new();
     scan(first, "require-exact")
         .write(first.as_bytes(), &mut bytes, None, &never)
@@ -878,11 +913,11 @@ fn staging_uses_the_given_directory() {
     assert!(!bytes.is_empty());
 }
 
-struct FailingSink;
+struct FailingSink(std::io::ErrorKind);
 
 impl std::io::Write for FailingSink {
     fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-        Err(std::io::ErrorKind::StorageFull.into())
+        Err(self.0.into())
     }
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
@@ -891,18 +926,97 @@ impl std::io::Write for FailingSink {
 
 #[test]
 fn a_failing_sink_is_a_write_failure() {
+    use std::io::ErrorKind as Io;
     let never = AtomicBool::new(false);
     let rows = "[\"a\",\"b\"]\n";
     let scan = plan(TEXT, &policy("require-exact", ""))
         .unwrap()
         .scan(rows.as_bytes(), &never)
         .unwrap();
-    let error = scan
-        .write(rows.as_bytes(), FailingSink, None, &never)
-        .unwrap_err();
-    assert_eq!(
-        (error.category(), error.rule()),
-        (Category::IoFailure, "write-failed")
+    for (kind, category, rule, exhausted) in [
+        (
+            Io::PermissionDenied,
+            Category::IoFailure,
+            "write-failed",
+            false,
+        ),
+        (Io::BrokenPipe, Category::IoFailure, "write-failed", false),
+        (
+            Io::StorageFull,
+            Category::ResourceLimit,
+            "storage-full",
+            true,
+        ),
+        (
+            Io::QuotaExceeded,
+            Category::ResourceLimit,
+            "quota-exceeded",
+            true,
+        ),
+        (
+            Io::FileTooLarge,
+            Category::ResourceLimit,
+            "file-too-large",
+            true,
+        ),
+        (
+            Io::OutOfMemory,
+            Category::ResourceLimit,
+            "out-of-memory",
+            true,
+        ),
+    ] {
+        let error = scan
+            .write(rows.as_bytes(), FailingSink(kind), None, &never)
+            .unwrap_err();
+        assert!(matches!(error.kind(), ErrorKind::Write(_)), "{kind:?}");
+        assert_eq!(
+            (error.category(), error.rule(), error.is_system_exhaustion()),
+            (category, rule, exhausted),
+            "{kind:?}"
+        );
+    }
+}
+
+/// The pinned writer panics when it cannot write its temporary files. The
+/// test runs itself under a file size limit and expects an error instead.
+#[cfg(unix)]
+#[test]
+fn a_staging_write_failure_is_an_error() {
+    const CHILD: &str = "TABLEPRIMS_XLSX_STAGING_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let never = AtomicBool::new(false);
+        let rows = format!("[\"{}\",\"x\"]\n", "a".repeat(32_000)).repeat(3);
+        let scan = plan(TEXT, &policy("require-exact", ""))
+            .unwrap()
+            .scan(rows.as_bytes(), &never)
+            .unwrap();
+        let mut bytes = Vec::new();
+        let error = scan
+            .write(rows.as_bytes(), &mut bytes, None, &never)
+            .unwrap_err();
+        assert!(matches!(error.kind(), ErrorKind::Staging(_)));
+        assert_eq!(
+            (error.category(), error.rule(), error.is_system_exhaustion()),
+            (Category::ResourceLimit, "file-too-large", true)
+        );
+        return;
+    }
+    // The limit is in 512-byte blocks. The signal that comes with it is
+    // ignored so the write fails instead of ending the process.
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("trap '' XFSZ; ulimit -f 2; exec \"$0\" \"$@\"")
+        .arg(std::env::current_exe().unwrap())
+        .args(["--exact", "a_staging_write_failure_is_an_error"])
+        .env(CHILD, "1")
+        .output()
+        .unwrap();
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && report.contains("1 passed"),
+        "{report}\n{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

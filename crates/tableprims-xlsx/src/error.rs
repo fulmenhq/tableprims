@@ -93,12 +93,30 @@ pub enum ErrorKind {
     NotNative(Binary64Error),
     /// The second read of the input differs from the validated first read.
     InputChanged,
-    /// Writing the workbook failed.
+    /// Writing the workbook to the sink failed.
     Write(io::Error),
-    /// The workbook writer reported an unexpected error.
+    /// The workbook writer failed on its temporary files. Only the kind of
+    /// the underlying failure is kept.
+    Staging(io::Error),
+    /// The workbook writer reported an unexpected error. The text comes
+    /// from the writer and may name parts of the workbook.
     Backend(String),
+    /// The workbook writer stopped without reporting an error.
+    BackendPanic,
     /// The caller asked the operation to stop.
     Cancelled,
+}
+
+/// The rule for an I/O failure that is the system running out of storage or
+/// memory.
+fn exhaustion(error: &io::Error) -> Option<&'static str> {
+    match error.kind() {
+        io::ErrorKind::StorageFull => Some("storage-full"),
+        io::ErrorKind::QuotaExceeded => Some("quota-exceeded"),
+        io::ErrorKind::FileTooLarge => Some("file-too-large"),
+        io::ErrorKind::OutOfMemory => Some("out-of-memory"),
+        _ => None,
+    }
 }
 
 /// A write error, located at a row and column where one applies.
@@ -172,6 +190,19 @@ impl WriteError {
         self.classify().1
     }
 
+    /// Whether the error is the system running out of storage or memory,
+    /// as opposed to a configured limit or a capacity of the destination.
+    /// Both are in the [`Category::ResourceLimit`] category.
+    #[must_use]
+    pub fn is_system_exhaustion(&self) -> bool {
+        match &self.kind {
+            ErrorKind::Read(error) | ErrorKind::Write(error) | ErrorKind::Staging(error) => {
+                exhaustion(error).is_some()
+            }
+            _ => false,
+        }
+    }
+
     fn classify(&self) -> (Category, &'static str) {
         use Category as C;
         match &self.kind {
@@ -194,6 +225,11 @@ impl WriteError {
                 (C::UnsupportedRepresentation, "sheet-name-unsupported")
             }
             ErrorKind::CellTooLong => (C::ResourceLimit, "cell-too-long"),
+            ErrorKind::Read(error) | ErrorKind::Write(error) | ErrorKind::Staging(error)
+                if exhaustion(error).is_some() =>
+            {
+                (C::ResourceLimit, exhaustion(error).unwrap_or_default())
+            }
             ErrorKind::Read(_) => (C::IoFailure, "read-failed"),
             ErrorKind::ByteOrderMark => (C::InvalidInput, "byte-order-mark"),
             ErrorKind::InvalidUtf8 => (C::InvalidInput, "invalid-utf8"),
@@ -255,7 +291,9 @@ impl WriteError {
             ),
             ErrorKind::InputChanged => (C::IoFailure, "input-changed"),
             ErrorKind::Write(_) => (C::IoFailure, "write-failed"),
+            ErrorKind::Staging(_) => (C::IoFailure, "staging-failed"),
             ErrorKind::Backend(_) => (C::Internal, "writer-error"),
+            ErrorKind::BackendPanic => (C::Internal, "writer-panic"),
             ErrorKind::Cancelled => (C::Cancelled, "cancelled"),
         }
     }
@@ -280,7 +318,9 @@ impl fmt::Display for WriteError {
 impl std::error::Error for WriteError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.kind {
-            ErrorKind::Read(error) | ErrorKind::Write(error) => Some(error),
+            ErrorKind::Read(error) | ErrorKind::Write(error) | ErrorKind::Staging(error) => {
+                Some(error)
+            }
             ErrorKind::Policy(error) => Some(error),
             _ => None,
         }

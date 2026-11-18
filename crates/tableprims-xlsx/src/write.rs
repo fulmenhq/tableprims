@@ -18,8 +18,9 @@ const MAX_FORMAT_SCALE: u8 = 30;
 
 fn backend(error: XlsxError) -> WriteError {
     match error {
-        XlsxError::IoError(error) | XlsxError::TempFileError(_, error) => {
-            WriteError::new(ErrorKind::Write(error))
+        XlsxError::IoError(error) => WriteError::new(ErrorKind::Write(error)),
+        XlsxError::TempFileError(_, error) => {
+            WriteError::new(ErrorKind::Staging(error.kind().into()))
         }
         other => {
             // An I/O failure wrapped by the archive writer is still an I/O
@@ -34,6 +35,47 @@ fn backend(error: XlsxError) -> WriteError {
             WriteError::new(ErrorKind::Backend(other.to_string()))
         }
     }
+}
+
+/// What the pinned writer says when it cannot write a temporary file.
+const STAGING_PANIC: &str = "Couldn't write to xml file";
+/// How a panic on an unwrapped error begins.
+const UNWRAP_PANIC: &str = "called `Result::unwrap()` on an `Err` value: ";
+
+/// Turns a panic from the workbook writer into an error.
+///
+/// The writer reports a failure to write its temporary files by panicking
+/// with the operating system error in the message. Such a panic becomes a
+/// staging failure that keeps the error's kind. Any other panic is reported
+/// as such and is not taken for an I/O failure.
+fn panic_error(payload: &(dyn std::any::Any + Send)) -> WriteError {
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&'static str>().copied())
+        .unwrap_or_default();
+    let os_error = |text: &str| text.starts_with("Os {") || text.starts_with("Custom {");
+    let staged = match message.strip_prefix(STAGING_PANIC) {
+        Some(_) => true,
+        None => message.strip_prefix(UNWRAP_PANIC).is_some_and(os_error),
+    };
+    if !staged {
+        return WriteError::new(ErrorKind::BackendPanic);
+    }
+    let kind = [
+        ("kind: StorageFull", std::io::ErrorKind::StorageFull),
+        ("kind: QuotaExceeded", std::io::ErrorKind::QuotaExceeded),
+        ("kind: FileTooLarge", std::io::ErrorKind::FileTooLarge),
+        ("kind: OutOfMemory", std::io::ErrorKind::OutOfMemory),
+        (
+            "kind: PermissionDenied",
+            std::io::ErrorKind::PermissionDenied,
+        ),
+    ]
+    .into_iter()
+    .find(|(name, _)| message.contains(name))
+    .map_or(std::io::ErrorKind::Other, |(_, kind)| kind);
+    WriteError::new(ErrorKind::Staging(kind.into()))
 }
 
 /// The display format of a native exact-number column. The scale shown is
@@ -64,9 +106,10 @@ impl Scan {
     /// Reads the input a second time and writes the workbook to `sink`.
     ///
     /// `input` must yield the bytes [`Plan::scan`](crate::Plan::scan) read.
-    /// The rows are validated again; a read that leads to a different
-    /// outcome than the first is refused. A caller that needs byte
-    /// identity compares digests of the two reads as well.
+    /// The rows are validated again. A read with a different outcome or
+    /// different cells is refused; the cells are compared by a 64-bit
+    /// fingerprint, which is not a digest. A caller that needs that
+    /// assurance compares digests of the bytes of both reads.
     ///
     /// Row data is staged in unnamed temporary files, in `staging` when it
     /// is given and in the system temporary directory otherwise. `sink`
@@ -78,8 +121,27 @@ impl Scan {
     /// # Errors
     ///
     /// Fails when the input cannot be read, differs from the first read, or
-    /// the workbook cannot be written.
+    /// the workbook cannot be written. A failure of the writer's temporary
+    /// files is caught as a panic, so it is reported only in a build that
+    /// unwinds on panic.
     pub fn write<R: BufRead, W: Write + Send>(
+        &self,
+        input: R,
+        sink: W,
+        staging: Option<&Path>,
+        cancel: &AtomicBool,
+    ) -> Result<Outcome, WriteError> {
+        // The writer panics rather than returning some failures. Nothing it
+        // holds is used after a panic.
+        let work =
+            std::panic::AssertUnwindSafe(|| self.write_workbook(input, sink, staging, cancel));
+        match std::panic::catch_unwind(work) {
+            Ok(result) => result,
+            Err(payload) => Err(panic_error(payload.as_ref())),
+        }
+    }
+
+    fn write_workbook<R: BufRead, W: Write + Send>(
         &self,
         input: R,
         sink: W,
@@ -144,6 +206,7 @@ impl Scan {
             // input is not the one that was validated.
             ErrorKind::Read(_)
             | ErrorKind::Write(_)
+            | ErrorKind::Staging(_)
             | ErrorKind::Backend(_)
             | ErrorKind::Cancelled
             | ErrorKind::InputChanged => error,
@@ -171,5 +234,62 @@ impl Scan {
         }
         workbook.save_to_writer(sink).map_err(backend)?;
         Ok(self.outcome())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::Category;
+
+    fn classify(message: &str) -> (Category, &'static str, bool) {
+        let error = panic_error(&message.to_owned());
+        (error.category(), error.rule(), error.is_system_exhaustion())
+    }
+
+    #[test]
+    fn a_staging_panic_keeps_the_kind_of_its_cause() {
+        for (cause, category, rule, exhausted) in [
+            (
+                "Os { code: 28, kind: StorageFull, message: \"No space left on device\" }",
+                Category::ResourceLimit,
+                "storage-full",
+                true,
+            ),
+            (
+                "Os { code: 27, kind: FileTooLarge, message: \"File too large\" }",
+                Category::ResourceLimit,
+                "file-too-large",
+                true,
+            ),
+            (
+                "Os { code: 5, kind: Uncategorized, message: \"Input/output error\" }",
+                Category::IoFailure,
+                "staging-failed",
+                false,
+            ),
+        ] {
+            let expected = (category, rule, exhausted);
+            assert_eq!(classify(&format!("{STAGING_PANIC}: {cause}")), expected);
+            assert_eq!(classify(&format!("{UNWRAP_PANIC}{cause}")), expected);
+        }
+    }
+
+    #[test]
+    fn any_other_panic_is_not_an_io_failure() {
+        for message in [
+            "",
+            "index out of bounds: the len is 3 but the index is 7",
+            "called `Result::unwrap()` on an `Err` value: ParseIntError { kind: StorageFull }",
+            "called `Option::unwrap()` on a `None` value",
+            "RwLock poisoned",
+        ] {
+            assert_eq!(
+                classify(message),
+                (Category::Internal, "writer-panic", false)
+            );
+        }
+        let error = panic_error(&7_u8);
+        assert_eq!(error.rule(), "writer-panic");
     }
 }

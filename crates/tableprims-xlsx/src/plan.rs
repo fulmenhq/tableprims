@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Planning and the validating first read.
 
+use std::hash::{DefaultHasher, Hasher};
 use std::io::BufRead;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -220,6 +221,9 @@ pub(crate) struct ColumnTally {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Tally {
     pub(crate) rows: u64,
+    /// A fingerprint of every cell read, in order. It tells two reads in one
+    /// process apart; it is not a digest.
+    pub(crate) fingerprint: u64,
     pub(crate) range_count: u64,
     pub(crate) columns: Vec<ColumnTally>,
 }
@@ -246,8 +250,10 @@ pub(crate) fn pass<R: BufRead>(
     mut emit: impl FnMut(u64, Vec<Prepared>) -> Result<(), WriteError>,
 ) -> Result<Tally, WriteError> {
     let columns = plan.schema.columns();
+    let mut fingerprint = DefaultHasher::new();
     let mut tally = Tally {
         rows: 0,
+        fingerprint: 0,
         range_count: 0,
         columns: vec![ColumnTally::default(); columns.len()],
     };
@@ -261,6 +267,18 @@ pub(crate) fn pass<R: BufRead>(
             return Err(WriteError::at_row(ErrorKind::TooManyRows, row));
         }
         let scalars: Vec<Scalar<'_>> = cells.iter().map(Cell::as_scalar).collect();
+        fingerprint.write_usize(scalars.len());
+        for scalar in &scalars {
+            match scalar {
+                Scalar::Null => fingerprint.write_u8(0),
+                Scalar::Boolean(flag) => fingerprint.write_u8(1 + u8::from(*flag)),
+                Scalar::Text(text) => {
+                    fingerprint.write_u8(3);
+                    fingerprint.write_usize(text.len());
+                    fingerprint.write(text.as_bytes());
+                }
+            }
+        }
         let values = plan.schema.check_row(row, &scalars).map_err(|error| {
             let kind = ErrorKind::Row(error.rule());
             match error.column() {
@@ -366,6 +384,7 @@ pub(crate) fn pass<R: BufRead>(
     if cancel.load(Ordering::Relaxed) {
         return Err(WriteError::new(ErrorKind::Cancelled));
     }
+    tally.fingerprint = fingerprint.finish();
     Ok(tally)
 }
 
