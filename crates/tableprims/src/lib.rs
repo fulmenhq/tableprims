@@ -7,6 +7,7 @@
 //! tested. Callers must treat an absent conversion as unsupported.
 
 pub mod exact;
+pub mod ndjson;
 pub mod table;
 pub mod temporal;
 
