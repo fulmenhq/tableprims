@@ -120,7 +120,7 @@ incomplete.
 }
 ```
 
-- `status` is `ok`, `refused` or `failed`. `output` and `counts` are present
+- `status` is `ok`, `refused` or `failed`; `cancelled` is reserved. `output` and `counts` are present
   only for `ok`. Any other status has
   `"refusal": {"category": "…", "rule": "…", "row": 12, "column": "amount"}`,
   with `row` (zero-based) and `column` where they apply. Cell content never
@@ -161,9 +161,15 @@ incomplete.
 | 62   | a type, value or sheet name the workbook cannot represent            | `refused` |
 | 64   | command-line usage error; no result file                             |           |
 
-A result file is written for every code except 64, when it can be. An
-interrupt ends the process without a result file and can leave a temporary
-file beside `--output`.
+A result file is written for every code except 64, when it can be.
+
+This version installs no signal handler. An interrupt or a kill ends the
+process at once: a supervisor sees death by signal, not exit code 130 or 143,
+and no result file with status `cancelled` is produced; those codes and that
+status are reserved. Nothing is left under the `--output` or `--result` name,
+because each is published only when complete. A temporary file named
+`.<name>.<32 hexadecimal digits>.tmp` can remain beside either and may be
+deleted.
 
 ## Limits
 

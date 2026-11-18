@@ -411,3 +411,50 @@ fn capabilities_list_the_conversion() {
         serde_json::json!([{"source": "ndjson", "destination": "xlsx"}])
     );
 }
+
+/// Without a signal handler a kill ends the process where it stands. The
+/// workbook is only ever published under its name when complete, so nothing
+/// may be at the destination, and what remains is a recognisable temporary.
+#[test]
+fn a_killed_run_leaves_no_workbook_and_no_result() {
+    let rows = "[\"INV-1\",\"3\",\"12.3450\",true]\n".repeat(400_000);
+    let case = Case::new("killed", SCHEMA, POLICY, &rows);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_tablebolt"))
+        .args(["xlsx", "write", "--input"])
+        .arg(case.path("rows.ndjson"))
+        .arg("--schema")
+        .arg(case.path("schema.json"))
+        .arg("--policy")
+        .arg(case.path("policy.json"))
+        .arg("--output")
+        .arg(case.path("out.xlsx"))
+        .arg("--result")
+        .arg(case.path("result.json"))
+        .spawn()
+        .unwrap();
+    // The temporary appears when the second read starts.
+    let temporary = |name: &String| name.starts_with(".out.xlsx.") && name.ends_with(".tmp");
+    let started = std::time::Instant::now();
+    while !case.names().iter().any(temporary) {
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "the run ended before it could be killed"
+        );
+        assert!(
+            started.elapsed().as_secs() < 60,
+            "no temporary file appeared"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    child.kill().unwrap();
+    assert!(!child.wait().unwrap().success());
+    let names = case.names();
+    assert!(!names.contains(&"out.xlsx".to_owned()), "{names:?}");
+    assert!(!names.contains(&"result.json".to_owned()), "{names:?}");
+    for name in names {
+        assert!(
+            INPUTS.contains(&name.as_str()) || temporary(&name),
+            "{name}"
+        );
+    }
+}
