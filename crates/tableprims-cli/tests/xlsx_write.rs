@@ -413,6 +413,10 @@ fn capabilities_list_the_conversion() {
 }
 
 fn spawn_long(case: &Case) -> std::process::Child {
+    spawn_named(case, "out.xlsx", "result.json")
+}
+
+fn spawn_named(case: &Case, output: &str, result: &str) -> std::process::Child {
     Command::new(env!("CARGO_BIN_EXE_tablebolt"))
         .args(["xlsx", "write", "--input"])
         .arg(case.path("rows.ndjson"))
@@ -421,12 +425,34 @@ fn spawn_long(case: &Case) -> std::process::Child {
         .arg("--policy")
         .arg(case.path("policy.json"))
         .arg("--output")
-        .arg(case.path("out.xlsx"))
+        .arg(case.path(output))
         .arg("--result")
-        .arg(case.path("result.json"))
+        .arg(case.path(result))
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap()
+}
+
+/// Waits for runs started together and returns their exit codes. A run
+/// here ends with 0 or, having found a name taken, 54; any other code is a
+/// failure of the host, such as exhausted storage, and fails the test.
+fn finish(children: Vec<std::process::Child>) -> Vec<Option<i32>> {
+    let codes: Vec<Option<i32>> = children
+        .into_iter()
+        .map(|child| child.wait_with_output().unwrap().status.code())
+        .collect();
+    for code in &codes {
+        assert!(matches!(code, Some(0 | 54)), "{codes:?}");
+    }
+    codes
+}
+
+fn completed(codes: &[Option<i32>]) -> usize {
+    codes.iter().filter(|code| **code == Some(0)).count()
+}
+
+fn read_result(case: &Case, name: &str) -> Value {
+    serde_json::from_slice(&fs::read(case.dir.join(name)).unwrap()).unwrap()
 }
 
 /// Waits until the run has started writing its workbook.
@@ -504,23 +530,159 @@ fn an_unwritable_result_directory_fails_before_the_workbook() {
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// A result name taken while the run is under way: the run fails, the other
-/// file is kept, and the workbook this run published is taken back.
-#[cfg(unix)]
+/// A result name taken while the run is under way: the run fails and
+/// replaces nothing. The workbook it had published stays, without a result,
+/// and the run says so.
 #[test]
-fn a_workbook_whose_result_cannot_be_published_is_removed() {
+fn a_workbook_whose_result_cannot_be_published_is_reported_incomplete() {
     let case = Case::new("orphan", SCHEMA, POLICY, &long_rows(100_000));
     let mut child = spawn_long(&case);
     wait_for_workbook_temporary(&case, &mut child);
     fs::write(case.dir.join("result.json"), b"theirs").unwrap();
     let output = child.wait_with_output().unwrap();
     assert_eq!(output.status.code(), Some(54));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("the workbook was removed"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("has no result and is incomplete"));
     assert_eq!(fs::read(case.dir.join("result.json")).unwrap(), b"theirs");
     assert_eq!(
         case.names(),
-        ["policy.json", "result.json", "rows.ndjson", "schema.json"]
+        [
+            "out.xlsx",
+            "policy.json",
+            "result.json",
+            "rows.ndjson",
+            "schema.json"
+        ]
     );
+}
+
+/// Runs started together for one destination. At most one completes, and a
+/// result with status `ok` always describes the workbook that is there.
+#[test]
+fn runs_racing_for_one_destination_never_pair_a_result_with_another_workbook() {
+    let (mut won, mut lost) = (0, 0);
+    // Either outcome is about as likely in a round. Rounds continue until
+    // both have been seen, within a bound no healthy host reaches.
+    for round in 0..200 {
+        if won > 0 && lost > 0 && round >= 4 {
+            break;
+        }
+        let case = Case::new("racing", SCHEMA, POLICY, &long_rows(2_000));
+        let codes = finish((0..6).map(|_| spawn_long(&case)).collect());
+        let names = case.names();
+        // Every run ended on its own, so no temporary file remains.
+        for name in &names {
+            assert!(
+                INPUTS.contains(&name.as_str()) || name == "out.xlsx" || name == "result.json",
+                "{names:?}"
+            );
+        }
+        // Every run opens its result before converting, and the first to
+        // finish finds the name free, so a result is published.
+        let result = case.result();
+        let workbook = case.dir.join("out.xlsx");
+        if result["status"] == "ok" {
+            won += 1;
+            assert_eq!(completed(&codes), 1, "{codes:?}");
+            assert_eq!(result["output"], sum(&workbook));
+        } else {
+            lost += 1;
+            assert_eq!(completed(&codes), 0, "{codes:?}");
+            assert_eq!(result["refusal"]["rule"], "output-exists");
+            // The run that published the workbook lost the result name.
+            // Its workbook stays, without a result that describes it.
+            assert!(workbook.exists(), "{names:?}");
+        }
+    }
+    assert!(
+        won > 0 && lost > 0,
+        "completed {won}, none completed {lost}"
+    );
+}
+
+/// Runs sharing a workbook name, each with its own result: exactly one
+/// completes and the others report the name as taken.
+#[test]
+fn runs_racing_for_one_workbook_name_complete_once() {
+    let case = Case::new("racing-output", SCHEMA, POLICY, &long_rows(2_000));
+    let children = (0..6)
+        .map(|run| spawn_named(&case, "out.xlsx", &format!("result-{run}.json")))
+        .collect();
+    let codes = finish(children);
+    assert_eq!(completed(&codes), 1, "{codes:?}");
+    for (run, code) in codes.iter().enumerate() {
+        let result = read_result(&case, &format!("result-{run}.json"));
+        if *code == Some(0) {
+            assert_eq!(result["status"], "ok");
+            assert_eq!(result["output"], sum(&case.dir.join("out.xlsx")));
+        } else {
+            assert_eq!(result["refusal"]["rule"], "output-exists");
+        }
+    }
+    assert_eq!(case.names().len(), INPUTS.len() + 7);
+}
+
+/// Runs sharing a result name, each with its own workbook: exactly one
+/// completes, and the result describes a workbook that is there.
+#[test]
+fn runs_racing_for_one_result_name_complete_once() {
+    let case = Case::new("racing-result", SCHEMA, POLICY, &long_rows(2_000));
+    let children = (0..6)
+        .map(|run| spawn_named(&case, &format!("out-{run}.xlsx"), "result.json"))
+        .collect();
+    let codes = finish(children);
+    assert_eq!(completed(&codes), 1, "{codes:?}");
+    let result = case.result();
+    assert_eq!(result["status"], "ok");
+    let winner = codes.iter().position(|code| *code == Some(0)).unwrap();
+    assert_eq!(
+        result["output"],
+        sum(&case.dir.join(format!("out-{winner}.xlsx")))
+    );
+    for name in case.names() {
+        let workbook = name.starts_with("out-") && name.ends_with(".xlsx");
+        assert!(
+            INPUTS.contains(&name.as_str()) || name == "result.json" || workbook,
+            "{name}"
+        );
+    }
+}
+
+/// A destination directory that stops accepting new names while the run is
+/// under way: the cause is reported as a permission failure and nothing is
+/// published.
+#[cfg(unix)]
+#[test]
+fn a_directory_made_unwritable_during_the_run_is_a_permission_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let case = Case::new("locked-late", SCHEMA, POLICY, &long_rows(100_000));
+    let inputs = Case::new("locked-late-inputs", SCHEMA, POLICY, &long_rows(100_000));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_tablebolt"))
+        .args(["xlsx", "write", "--input"])
+        .arg(inputs.path("rows.ndjson"))
+        .arg("--schema")
+        .arg(inputs.path("schema.json"))
+        .arg("--policy")
+        .arg(inputs.path("policy.json"))
+        .arg("--output")
+        .arg(case.path("out.xlsx"))
+        .arg("--result")
+        .arg(case.path("result.json"))
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    wait_for_workbook_temporary(&case, &mut child);
+    fs::set_permissions(&case.dir, fs::Permissions::from_mode(0o555)).unwrap();
+    let privileged = fs::write(case.dir.join("probe"), b"").is_ok();
+    let output = child.wait_with_output().unwrap();
+    fs::set_permissions(&case.dir, fs::Permissions::from_mode(0o755)).unwrap();
+    if privileged {
+        // Running with privileges that ignore the mode: nothing to test.
+        return;
+    }
+    assert_eq!(output.status.code(), Some(50), "{output:?}");
+    let names = case.names();
+    assert!(!names.contains(&"out.xlsx".to_owned()), "{names:?}");
+    assert!(!names.contains(&"result.json".to_owned()), "{names:?}");
 }
 
 #[test]

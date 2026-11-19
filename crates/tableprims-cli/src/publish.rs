@@ -35,69 +35,46 @@ impl Pending {
         Ok((pending, file))
     }
 
-    /// Gives the temporary file its destination name. Fails with
+    /// Gives the temporary file its destination name by linking it there,
+    /// which the system refuses when the name exists. Fails with
     /// [`io::ErrorKind::AlreadyExists`] when the destination exists; an
-    /// existing file is never replaced.
-    pub(crate) fn publish(mut self) -> io::Result<Published> {
-        let published = Published {
-            identity: identity(&self.path),
-            path: self.target.clone(),
-        };
-        match fs::hard_link(&self.path, &self.target) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Err(error),
-            Err(_) => {
-                // No hard links here. Claim the name, then move the file
-                // onto the claim.
-                OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&self.target)?;
-                if let Err(error) = fs::rename(&self.path, &self.target) {
-                    let _ = fs::remove_file(&self.target);
-                    return Err(error);
-                }
-                self.published = true;
-                sync_directory(&self.target);
-                return Ok(published);
-            }
-        }
+    /// existing file is never replaced. There is no other way to publish:
+    /// on any failure the destination is left as it was.
+    pub(crate) fn publish(mut self) -> io::Result<()> {
+        fs::hard_link(&self.path, &self.target)?;
         self.published = true;
         let _ = fs::remove_file(&self.path);
         sync_directory(&self.target);
-        Ok(published)
+        Ok(())
     }
 }
 
-/// What identifies a file apart from its name, where the system has such a
-/// thing.
-#[cfg(unix)]
-fn identity(path: &Path) -> Option<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    fs::symlink_metadata(path)
-        .ok()
-        .map(|metadata| (metadata.dev(), metadata.ino()))
-}
-
-#[cfg(not(unix))]
-fn identity(_: &Path) -> Option<(u64, u64)> {
-    None
-}
-
-/// A file this run published.
-pub(crate) struct Published {
-    path: PathBuf,
-    identity: Option<(u64, u64)>,
-}
-
-impl Published {
-    /// Removes the file if the name still refers to the file this run
-    /// published. Returns whether it was removed. Where files have no
-    /// identity apart from their name, nothing is removed.
-    pub(crate) fn withdraw(&self) -> bool {
-        self.identity.is_some()
-            && identity(&self.path) == self.identity
-            && fs::remove_file(&self.path).is_ok()
+/// Whether a file in the destination's directory can be given a second name
+/// by linking, which is how files are published. Two temporary files named
+/// `.tablebolt-<token>.<role>-probe.tmp` and `…-probe-link.tmp` are created
+/// and removed. `Ok(false)` is the file system declining to link.
+pub(crate) fn links(target: &Path, token: &str, role: &str) -> io::Result<bool> {
+    let (first, file) = Pending::create(target, token, &format!("{role}-probe"))?;
+    drop(file);
+    let second = target.with_file_name(format!(".tablebolt-{token}.{role}-probe-link.tmp"));
+    let linked = fs::hard_link(&first.path, &second);
+    let _ = fs::remove_file(&second);
+    match linked {
+        Ok(()) => Ok(true),
+        // Causes that have nothing to do with linking are passed on.
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded | io::ErrorKind::NotFound
+            ) =>
+        {
+            Err(error)
+        }
+        // The directory accepted a new file a moment ago, so any other
+        // answer is the file system declining to link. Systems name that
+        // refusal in different ways, so a link denied by a security policy
+        // is reported the same way.
+        Err(_) => Ok(false),
     }
 }
 
@@ -161,26 +138,13 @@ mod tests {
         assert!(dir.join(".tablebolt-t1.workbook.tmp").exists());
         file.write_all(b"content").unwrap();
         drop(file);
-        let published = pending.publish().unwrap();
+        assert!(links(&target, "t1", "workbook").unwrap());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        pending.publish().unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"content");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         assert!(same_entry(&target, &dir.join(".").join("out.bin")));
         assert!(!same_entry(&target, &dir.join("other.bin")));
-        // A name that now refers to another file is left alone.
-        if cfg!(unix) {
-            fs::remove_file(&target).unwrap();
-            fs::write(dir.join("keep"), b"x").unwrap();
-            fs::write(&target, b"theirs").unwrap();
-            assert!(!published.withdraw());
-            assert_eq!(fs::read(&target).unwrap(), b"theirs");
-        }
-        #[cfg(unix)]
-        {
-            let (pending, file) = Pending::create(&dir.join("mine.bin"), "t4", "workbook").unwrap();
-            drop(file);
-            let mine = pending.publish().unwrap();
-            assert!(mine.withdraw());
-            assert!(!dir.join("mine.bin").exists());
-        }
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -192,7 +156,7 @@ mod tests {
         let (pending, mut file) = Pending::create(&target, "t2", "workbook").unwrap();
         file.write_all(b"ours").unwrap();
         drop(file);
-        let error = pending.publish().map(|_| ()).unwrap_err();
+        let error = pending.publish().unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(fs::read(&target).unwrap(), b"theirs");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);

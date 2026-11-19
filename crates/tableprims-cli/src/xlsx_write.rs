@@ -19,7 +19,7 @@ use tableprims_xlsx::{Category, ErrorKind, Outcome, Plan, ResolvedLimits, WriteE
 
 use crate::digest::{self, HashingReader, HashingWriter, Sum};
 use crate::identity;
-use crate::publish::{directory, same_entry, Pending, Published};
+use crate::publish::{directory, links, same_entry, Pending};
 
 /// Format identifier of the result file.
 pub(crate) const RESULT_FORMAT: &str = "tableprims.result/0";
@@ -250,7 +250,6 @@ struct Report {
 struct Done {
     outcome: Outcome,
     output: Sum,
-    published: Published,
 }
 
 fn sum_json(sum: &Sum) -> Value {
@@ -404,17 +403,13 @@ fn convert(files: &Files, token: &str, report: &mut Report) -> Result<Done, Fail
     file.sync_all()
         .map_err(|error| write_failure("output-write-failed", &error))?;
     drop(file);
-    let published = pending.publish().map_err(|error| match error.kind() {
+    pending.publish().map_err(|error| match error.kind() {
         io::ErrorKind::AlreadyExists => {
             Failure::new(Category::IoFailure, "output-exists", EXIT_FILE_WRITE_ERROR)
         }
         _ => write_failure("output-publish-failed", &error),
     })?;
-    Ok(Done {
-        outcome,
-        output,
-        published,
-    })
+    Ok(Done { outcome, output })
 }
 
 fn counts_json(outcome: &Outcome) -> Value {
@@ -507,7 +502,7 @@ fn publish_result(pending: Pending, mut file: File, result: &Value) -> io::Resul
     file.write_all(format!("{result}\n").as_bytes())?;
     file.sync_all()?;
     drop(file);
-    pending.publish().map(|_| ())
+    pending.publish()
 }
 
 /// 16 bytes from the operating system as lowercase hexadecimal.
@@ -563,15 +558,33 @@ pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>)
             );
         }
     };
+    // Files are published by linking. A file system that cannot link is
+    // found out before anything is converted.
+    if matches!(links(&files.result, &token, "result"), Ok(false)) {
+        return (
+            EXIT_FILE_WRITE_ERROR,
+            Some(String::from(
+                "the file system holding --result does not support hard links",
+            )),
+        );
+    }
     let mut report = Report::default();
-    let end = convert(files, &token, &mut report);
+    let end = match links(&files.output, &token, "workbook") {
+        Ok(false) => Err(Failure::new(
+            Category::IoFailure,
+            "hard-links-unsupported",
+            EXIT_FILE_WRITE_ERROR,
+        )),
+        // Anything else wrong with the directory is reported by the step
+        // that needs it.
+        _ => convert(files, &token, &mut report),
+    };
     let result = result_json(&run_id, &report, &end);
     if let Err(error) = publish_result(pending, file, &result) {
         let exit = write_failure("result-write-failed", &error).exit;
-        // A workbook without its result is incomplete. Take it back when
-        // the name still refers to the file this run published.
+        // A workbook without its result is incomplete. It is left where it
+        // is: by now the name may refer to a file that is not this run's.
         let workbook = match &end {
-            Ok(done) if done.published.withdraw() => "; the workbook was removed",
             Ok(_) => "; the workbook at --output has no result and is incomplete",
             Err(_) => "",
         };
