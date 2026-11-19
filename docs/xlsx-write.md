@@ -93,8 +93,17 @@ its `output` digest and length match the workbook. The workbook is published
 first and the result file second, so a workbook without a matching result is
 incomplete, whatever is at the `--output` name. The result file is opened
 before the conversion starts; if it still cannot be published afterwards, the
-run fails and removes the workbook it published where the system lets it
-tell that file from another put under the same name.
+run fails and says that the workbook it published has no result. It does
+not remove the workbook.
+
+Neither file replaces an existing one, and each appears under its name only
+when complete. The file system holding each must support hard links. This is
+tried before anything is converted; where it does not hold, the run fails
+with code 54 and, when the result file can be written, the rule
+`hard-links-unsupported`. Runs given the same `--output` or
+`--result` do not coordinate: at most one completes, all of them can
+fail, and a workbook can be left without a result. Give each run its own names. The rules are recorded in
+[DDR-0003](decisions/DDR-0003-publishing-output-files.md).
 
 ```json
 {
@@ -169,11 +178,12 @@ A result file is written for every code except 64, when it can be.
 This version installs no signal handler. An interrupt or a kill ends the
 process at once: a supervisor sees death by signal, not exit code 130 or 143,
 and no result file with status `cancelled` is produced; those codes and that
-status are reserved. Nothing is left under the `--output` or `--result` name,
-because each is published only when complete. Temporary files can remain
+status are reserved. No partly written file is left under the `--output` or `--result` name,
+because each is published only when complete; a kill between the two leaves a
+workbook without a result. Temporary files can remain
 beside either and may be deleted: this program's are named
-`.tablebolt-<32 hexadecimal digits>.workbook.tmp` and `….result.tmp`, and the
-workbook writer's scratch files `.tmp` followed by six characters.
+`.tablebolt-<32 hexadecimal digits>.` followed by a purpose and `.tmp`, and
+the workbook writer's scratch files `.tmp` followed by six characters.
 
 ## Limits
 

@@ -6,8 +6,8 @@ present.
 
 ## Current phase
 
-Bootstrap. The workspace builds, and the `tablebolt` binary reports its version
-and an empty conversion list. No conversion is implemented.
+Pre-release. One conversion is implemented: `tablebolt xlsx write`, described
+in `docs/xlsx-write.md`. Nothing has been released.
 
 - Do not add placeholder crates, modules or APIs that imply support which does
   not exist. `conversions()` lists implemented behaviour only.
