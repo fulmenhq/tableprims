@@ -1,7 +1,7 @@
 ---
 id: "PDR-0002"
 title: "How decisions are recorded and how upstream material is referenced"
-status: "proposed"
+status: "accepted"
 date: "2026-11-19"
 ---
 
@@ -37,7 +37,10 @@ match what was built.
    stated in the README and the documentation.
 7. **Local decisions stay local.** A choice that concerns only this
    repository is recorded here. A contract other projects consume is proposed
-   upstream. Upstream records are not copied into this numbering.
+   upstream. Upstream records are not copied into this numbering. When a
+   decision recorded here is adopted upstream, the local record is not
+   edited into a pointer: a new local record supersedes it and names the
+   upstream record that now governs.
 8. **Upstream prose is referenced at a fixed revision.** A link to an
    upstream record or standard names a commit, not a branch.
 9. **An upstream record keeps its upstream status.** Following a record that

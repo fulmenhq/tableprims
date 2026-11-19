@@ -1,7 +1,7 @@
 ---
 id: "ADR-0002"
 title: "The conversion result is the record; process integration stays at the tool"
-status: "proposed"
+status: "accepted"
 date: "2026-11-19"
 relates-to:
   - "DDR-0003-publishing-output-files.md"

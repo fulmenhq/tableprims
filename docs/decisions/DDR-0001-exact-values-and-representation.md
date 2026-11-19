@@ -1,7 +1,7 @@
 ---
 id: "DDR-0001"
 title: "Exact values, and representation changes only by policy"
-status: "proposed"
+status: "accepted"
 date: "2026-11-19"
 relates-to:
   - "DDR-0002-typed-table-and-document-formats.md"

@@ -1,7 +1,7 @@
 ---
 id: "SecDR-0001"
 title: "Inputs are untrusted and bounded; dependencies are permissive and offline"
-status: "proposed"
+status: "accepted"
 date: "2026-11-19"
 relates-to:
   - "DDR-0003-publishing-output-files.md"

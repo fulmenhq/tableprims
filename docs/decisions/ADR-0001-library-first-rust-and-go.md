@@ -1,7 +1,7 @@
 ---
 id: "ADR-0001"
 title: "A library first, in Rust and then pure Go, under one version"
-status: "proposed"
+status: "accepted"
 date: "2026-11-19"
 relates-to:
   - "PDR-0001-independent-expected-results.md"

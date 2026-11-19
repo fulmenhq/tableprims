@@ -1,7 +1,7 @@
 ---
 id: "PDR-0001"
 title: "Expected results are authored independently of the implementation"
-status: "proposed"
+status: "accepted"
 date: "2026-11-19"
 relates-to:
   - "ADR-0001-library-first-rust-and-go.md"

@@ -1,7 +1,7 @@
 ---
 id: "DDR-0002"
 title: "A typed table model, strict documents, and what belongs in a shared contract"
-status: "proposed"
+status: "accepted"
 date: "2026-11-19"
 relates-to:
   - "DDR-0001-exact-values-and-representation.md"
