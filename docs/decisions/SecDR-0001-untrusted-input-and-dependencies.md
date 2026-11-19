@@ -23,8 +23,9 @@ ship.
 
 1. **File content is untrusted; the invocation is trusted.** Rows, schema and
    policy are untrusted, as is any metadata read from a file. Paths and
-   limits come only from the caller. No value in any document names a path or
-   a network location.
+   limits come only from the caller. The program never opens a path or a
+   network location taken from a document. Text in a cell that looks like a
+   path or an address is stored as text.
 2. **Text cannot become a formula.** Strings are written as string cells and
    are never interpreted as formulas or links. Nothing is evaluated, no macro
    is written and nothing is fetched.
@@ -38,8 +39,8 @@ ship.
    Exceeding a limit refuses the run with a rule that names it. Running out
    of storage or memory is reported separately from exceeding a configured
    limit.
-5. **Diagnostics carry no cell content.** A refusal gives a category, a rule,
-   a row and a column.
+5. **Diagnostics carry no cell content.** A refusal gives a category and a
+   rule, and a row and a column when the failure has a location.
 6. **Conversion is offline.** The crates in this workspace open no network
    connection. `deny.toml` bans a list of network client, TLS and git
    libraries by name, and `make deny`, part of `make check`, fails when one
@@ -55,7 +56,9 @@ ship.
    off for the workbook writer, its version is pinned exactly, and crates
    come only from the public registry. A feature that links a native library
    needs review before it is enabled.
-10. **The Go module builds without cgo and uses the standard library only.**
+10. **The Go module, when it exists, builds without cgo and uses the standard
+    library only.** There is no Go module in the tree yet; `make deps-check`
+    applies the rule once a root `go.mod` is present.
 11. **Containment is the caller's.** The library takes a cancellation flag and
     limits on its inputs. It does not limit its own time, memory or scratch
     space; a caller that needs hard limits runs the tool under a supervisor
@@ -88,5 +91,6 @@ ship.
 - Adding a dependency can fail on a licence deep in its graph.
 - The test-only workbook readers are not held to rule 13. They read files the
   tests wrote.
-- A run killed by a supervisor leaves temporary files and no result; DDR-0003
-  describes what a reader can conclude.
+- A run killed by a supervisor leaves no result. It can leave temporary
+  files and, when killed between the two publications, a workbook without a
+  result. DDR-0003 describes what a reader can conclude.
