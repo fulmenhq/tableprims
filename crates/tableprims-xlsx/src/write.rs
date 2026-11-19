@@ -14,7 +14,7 @@ use crate::metadata;
 use crate::plan::{pass, Outcome, Prepared, Representation, Scan};
 
 /// Largest scale shown with a fixed number of decimal places.
-const MAX_FORMAT_SCALE: u8 = 30;
+pub(crate) const MAX_FORMAT_SCALE: u8 = 30;
 
 fn backend(error: XlsxError) -> WriteError {
     match error {

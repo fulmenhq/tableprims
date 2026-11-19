@@ -27,10 +27,10 @@ pub struct Conversion {
     pub destination: &'static str,
 }
 
-/// Conversions implemented by this build.
+/// Conversions implemented by this crate.
 ///
-/// The list is empty until the first adapter lands. It reports implemented
-/// behaviour only, never planned work.
+/// The list is empty: conversions are implemented by adapter crates, which
+/// report their own.
 #[must_use]
 pub fn conversions() -> &'static [Conversion] {
     &[]

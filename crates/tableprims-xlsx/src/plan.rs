@@ -170,6 +170,31 @@ impl Plan {
         self.limits
     }
 
+    /// The name of the data worksheet.
+    #[must_use]
+    pub fn sheet(&self) -> &str {
+        &self.sheet
+    }
+
+    /// How exact numbers are represented.
+    #[must_use]
+    pub fn exact_numbers(&self) -> ExactNumberPolicy {
+        self.exact
+    }
+
+    /// For each schema column in order, the decimal type it is quantized to
+    /// and the rounding mode, or `None` for a column that is not quantized.
+    #[must_use]
+    pub fn quantize(&self) -> &[Option<(DecimalType, RoundingMode)>] {
+        &self.quantize
+    }
+
+    /// The schema the plan was made for.
+    #[must_use]
+    pub fn schema(&self) -> &Schema {
+        &self.schema
+    }
+
     /// Reads the input once, validates every row and decides how each
     /// column is stored. Nothing is written.
     ///

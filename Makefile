@@ -206,14 +206,14 @@ smoke: build ## Run the built tablebolt binary and check its exit codes
 	$(TABLEBOLT) capabilities --json
 	@status=0; $(TABLEBOLT) xlsx write >/dev/null 2>&1 || status=$$?; \
 		if [ "$$status" -ne 64 ]; then \
-			echo "expected exit 64 for an unimplemented command, got $$status"; exit 1; \
+			echo "expected exit 64 for a command without its arguments, got $$status"; exit 1; \
 		fi
 	@echo "[ok] tablebolt smoke passed"
 
 msrv-check: ## Rust tests at the MSRV
 	$(CARGO) +$(MSRV) test --locked --workspace
 
-deps-check: ## Leaf rule: no prim, rsfulmen or Go module dependencies
+deps-check: ## Dependency rule: a dependency-free library crate, no other prim or rsfulmen beyond the CLI allowlist, no Go module dependencies
 	scripts/deps-check.sh
 	@echo "[ok] deps-check"
 

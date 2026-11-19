@@ -6,8 +6,8 @@ present.
 
 ## Current phase
 
-Bootstrap. The workspace builds, and the `tablebolt` binary reports its version
-and an empty conversion list. No conversion is implemented.
+Pre-release. One conversion is implemented: `tablebolt xlsx write`, described
+in `docs/xlsx-write.md`. Nothing has been released.
 
 - Do not add placeholder crates, modules or APIs that imply support which does
   not exist. `conversions()` lists implemented behaviour only.
@@ -31,7 +31,7 @@ Run `make check` before committing, `make prepush` before pushing and
 `make pr-final` before opening or updating a PR.
 
 - `make check` is everything CI runs on one host: formatting, Clippy, tests,
-  the `tablebolt` smoke run, the leaf-dependency rule (`make deps-check`), the
+  the `tablebolt` smoke run, the dependency rule (`make deps-check`), the
   content check, version sites, workflow digest pins and cargo-deny.
 - `make prepush` adds the minimum supported Rust version build
   (`make msrv-check`), YAML and workflow lint, the tool controls and the

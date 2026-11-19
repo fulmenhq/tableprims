@@ -7,9 +7,12 @@ Typed tabular conversion library, with a thin command-line tool named
 
 ## Status
 
-This repository is at the bootstrap stage. **No conversion is implemented.**
-The library reports an empty conversion list and `tablebolt` offers only
-`version` and `capabilities`. Nothing here should be used to convert data yet.
+This repository is experimental and has made no release. One conversion is
+implemented: `tablebolt xlsx write` writes typed rows to an XLSX workbook; see
+[docs/xlsx-write.md](docs/xlsx-write.md). Its formats are provisional and may
+change before the first release. Workbooks have been checked by reading them
+back with an independent parser, not by opening them in a spreadsheet
+application.
 
 ## What we are building
 
@@ -31,7 +34,7 @@ IPC and Parquet adapters are planned against the same typed contract.
 | ----------------------- | ------------------------------------------------ |
 | `crates/tableprims`     | Rust library: conversion semantics and policy    |
 | `crates/tableprims-cli` | Thin CLI package; builds the `tablebolt` binary  |
-| `crates/tableprims-xlsx` | XLSX write adapter; not yet used by the CLI      |
+| `crates/tableprims-xlsx` | XLSX write adapter                               |
 
 ## Language surfaces
 
