@@ -4,8 +4,8 @@ title: "Inputs are untrusted and bounded; dependencies are permissive and offlin
 status: "proposed"
 date: "2026-11-19"
 relates-to:
-  - "../decisions/DDR-0003-publishing-output-files.md"
-  - "../decisions/DDR-0002-typed-table-and-document-formats.md"
+  - "DDR-0003-publishing-output-files.md"
+  - "DDR-0002-typed-table-and-document-formats.md"
   - "../xlsx-write.md"
 ---
 
@@ -62,7 +62,7 @@ ship.
     that enforces them.
 12. **The destination directory is trusted.** Output files are never replaced
     and never removed, as
-    [DDR-0003](../decisions/DDR-0003-publishing-output-files.md) sets out.
+    [DDR-0003](DDR-0003-publishing-output-files.md) sets out.
     Those rules do not hold against a party that can rewrite the directory.
 13. **Reading is held to the same standard before it ships.** A reader of
     compressed containers bounds the number of entries and the expanded size

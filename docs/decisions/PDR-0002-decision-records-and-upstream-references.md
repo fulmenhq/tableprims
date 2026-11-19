@@ -21,9 +21,9 @@ match what was built.
    repository, as set out in the
    [3leaps Crucible catalog](https://github.com/3leaps/crucible/blob/3636a79f7ea507bccfa6534655764d7b36c2ea05/docs/repository/decision-records.md).
    A number is never reused.
-2. **Records live in two places.** Security records are in `docs/security/`
-   and all others in `docs/decisions/`. The index in
-   `docs/decisions/README.md` lists every record.
+2. **Records live in one place.** Every record, of every type, is in
+   `docs/decisions/`, and the index in `docs/decisions/README.md` lists each
+   one.
 3. **A record is accepted by the maintainer.** It is `proposed` until the
    maintainer accepts it, and the acceptance is recorded by the change that
    sets its status.
