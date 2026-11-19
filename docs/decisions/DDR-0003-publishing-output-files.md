@@ -4,6 +4,7 @@ title: "Output files are published complete, under names that did not exist"
 status: "accepted"
 date: "2026-11-19"
 relates-to:
+  - "ADR-0002-conversion-result-and-process-boundary.md"
   - "../xlsx-write.md"
 ---
 

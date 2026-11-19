@@ -1,6 +1,8 @@
 # Contributing
 
-tableprims is at the bootstrap stage; see the [README](README.md) for status.
+tableprims is experimental and unreleased; see the [README](README.md) for
+status and [docs/decisions](docs/decisions/README.md) for the decisions that
+bind changes.
 Useful contributions now are concrete conversion examples, questions about the
 typed contract and independently derived expected results.
 

@@ -1,7 +1,7 @@
 # tableprims contributor agent guide
 
 Read `README.md` and `CONTRIBUTING.md` before changing code, and the records
-under `docs/decisions/` when that directory exists. Read local guidance when
+under `docs/decisions/` and `docs/security/`. Read local guidance when
 present.
 
 ## Current phase
