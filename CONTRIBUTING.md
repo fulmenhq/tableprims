@@ -1,6 +1,8 @@
 # Contributing
 
-tableprims is at the bootstrap stage; see the [README](README.md) for status.
+tableprims is experimental and unreleased; see the [README](README.md) for
+status and [docs/decisions](docs/decisions/README.md) for the decisions that
+bind changes.
 Useful contributions now are concrete conversion examples, questions about the
 typed contract and independently derived expected results.
 
@@ -8,7 +10,7 @@ typed contract and independently derived expected results.
 
 - Use public synthetic inputs or redistributable material with provenance. Do
   not submit private data, secrets or redacted production examples. Follow the
-  [Sensitive Local Data Policy](https://github.com/3leaps/oss-policies/blob/main/SENSITIVE-LOCAL-DATA.md).
+  [Sensitive Local Data Policy](https://github.com/3leaps/oss-policies/blob/dee9d320f5b7045a44c92b200cc1c92ca83ae843/SENSITIVE-LOCAL-DATA.md).
 - Dependencies must carry a permissive license accepted by `deny.toml`.
   Copyleft licenses are not accepted, and an unknown license fails the check.
 - Proposed changes need maintainer review.

@@ -2,9 +2,9 @@
 
 //! Typed tabular conversion library.
 //!
-//! This crate is at the bootstrap stage. It implements no conversions:
-//! [`conversions`] returns an empty list until an adapter is implemented and
-//! tested. Callers must treat an absent conversion as unsupported.
+//! This crate holds exact numbers, typed rows and schemas, and the schema
+//! and policy documents. Conversions are implemented by adapter crates, so
+//! [`conversions`] here returns an empty list.
 
 pub mod binary64;
 pub mod documents;

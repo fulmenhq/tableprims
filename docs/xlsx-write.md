@@ -190,8 +190,9 @@ the workbook writer's scratch files `.tmp` followed by six characters.
 A worksheet holds 1,048,575 data rows and 16,384 columns; a cell holds 32,767
 UTF-16 code units. A line of input may be 1 MiB unless the policy raises it,
 up to 16 MiB. Empty strings are recorded as at most 65,536 row ranges per
-workbook. A schema or policy file may be 16 MiB. Exceeding a limit refuses the
-run.
+workbook. A schema or policy file may be 16 MiB and nests arrays and objects
+at most three deep. An integer or decimal has at most 38 significant digits. Exceeding a
+limit refuses the run.
 
 Row data is staged in temporary files in the directory of `--output` while
 the workbook is written.

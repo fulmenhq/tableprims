@@ -1,7 +1,7 @@
 # tableprims contributor agent guide
 
 Read `README.md` and `CONTRIBUTING.md` before changing code, and the records
-under `docs/decisions/` when that directory exists. Read local guidance when
+under `docs/decisions/`. Read local guidance when
 present.
 
 ## Current phase
@@ -20,7 +20,7 @@ in `docs/xlsx-write.md`. Nothing has been released.
 
 ## Public content
 
-Follow the [Sensitive Local Data Policy](https://github.com/3leaps/oss-policies/blob/main/SENSITIVE-LOCAL-DATA.md).
+Follow the [Sensitive Local Data Policy](https://github.com/3leaps/oss-policies/blob/dee9d320f5b7045a44c92b200cc1c92ca83ae843/SENSITIVE-LOCAL-DATA.md).
 Private inputs, planning, identifiers and operating notes stay outside the
 working tree, including ignored paths. Use synthetic examples. Treat commit
 messages, branches and PR text as permanent public content.

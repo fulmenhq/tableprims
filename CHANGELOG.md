@@ -10,8 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Cargo workspace with the `tableprims` library crate and the `tableprims-cli`
   package, which builds the `tablebolt` binary.
-- `tablebolt version` and `tablebolt capabilities`, each with `--json`. The
-  capability list is empty: no conversion is implemented.
+- `tablebolt version` and `tablebolt capabilities`, each with `--json`.
 - Library module `exact`: exact integers and fixed-scale decimals of up to 38
   digits with a strict textual grammar, checked addition and quantization
   with five rounding modes.
@@ -61,6 +60,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Release tag tooling and its controls: committed public signing pins and
   fingerprint anchors, a pinned tagger identity, signed-tag creation and
   verification, and a release checklist. No release has been made.
+- Decision records for the library and language surfaces, the conversion
+  result, exact values, the typed table and its documents, expected results,
+  record keeping, and untrusted input and dependencies, under
+  `docs/decisions/`.
 
 ### Changed
 
