@@ -46,10 +46,10 @@ mistake.
 9. **Unsupported is not a pass.** A case the implementation cannot run is
    reported as unsupported or inconclusive. A refusal the contract requires
    is tested as a refusal.
-10. **A check must be able to fail.** A gate is shown to fail on a changed
-    digit, a dropped row, reordered columns, missing metadata and a truncated
-    file, with the fault introduced through the path that really produces
-    the output.
+10. **A check must be able to fail.** A gate that claims to detect a changed
+    digit, a dropped row, reordered columns, missing metadata or a truncated
+    file has a test that introduces that fault and sees the gate fail. The
+    fault is introduced through the path that really produces the output.
 11. **Fixtures are synthetic or redistributable.** Private data and redacted
     copies of it are not admitted.
 
@@ -73,3 +73,6 @@ obligations here does not change its status.
 - Results from opening a workbook in a spreadsheet application are recorded
   separately from automated results and are not implied by them.
 - No external suite is pinned in this repository yet.
+- Of the faults in rule 10, the tests in this repository introduce a changed
+  digit and an input that changes between its two reads. The others have no
+  such test yet.

@@ -26,18 +26,17 @@ be usable where cgo is unavailable.
    parsing, terminal output, file publication and exit codes live in
    `crates/tableprims-cli`, which builds the one binary, `tablebolt`.
 2. **The core library has no dependencies.** A dependency that only an
-   adapter or the tool needs is declared there. `make deps-check` fails when the library gains
-   one.
+   adapter or the tool needs is declared there. `make deps-check` fails when
+   the library gains one.
 3. **Backend types stay out of public interfaces.** An adapter's public
    interface is expressed in the library's types and its own. The library
    that reads or writes a file format can be replaced without changing a
    caller.
 4. **Rust is the first implementation; Go is the second and is pure Go.** The
    Go module is the repository root, `github.com/fulmenhq/tableprims`, and
-   builds with `CGO_ENABLED=0` and uses the standard library only. It offers a
-   native library interface. It
-   does not wrap the Rust library and does not add a second command-line
-   tool.
+   builds with `CGO_ENABLED=0` and uses the standard library only. It offers
+   a native library interface. It does not wrap the Rust library and does not
+   add a second command-line tool.
 5. **One repository, one version, one tag.** A release is a single tag that
    releases the Rust crates and the Go module together. The tag tooling
    refuses a commit that has no root `go.mod`.

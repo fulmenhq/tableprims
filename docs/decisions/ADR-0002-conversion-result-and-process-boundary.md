@@ -22,11 +22,13 @@ that later finds a converted file has neither.
 
 ## Decision
 
-1. **Every run of the tool produces one result document.** It states the
+1. **A run reports its outcome in one result document.** It states the
    status, the identity of the run, digests and lengths of the inputs that
    were read to their end, and either the digest, length and per-column
    counts of the output or a located refusal. Cell content never appears in
-   it.
+   it. A run that ends before its result file can be opened or published
+   leaves none: a usage error, a result name that is taken or cannot be
+   written, and a run that is killed.
 2. **The result document is the authoritative record.** A conversion is
    complete only when a result with status `ok` matches the converted file.
    How the two files are published so that this holds is
@@ -37,8 +39,9 @@ that later finds a converted file has neither.
    optional and fail-open: its failure does not fail a conversion, and its
    presence is never evidence that a conversion completed.
 4. **Supervised-run telemetry, if added, uses the existing contract.** It
-   follows the process-run contract of 3leaps Crucible
-   ([ADR-0006](https://github.com/3leaps/crucible/blob/3636a79f7ea507bccfa6534655764d7b36c2ea05/docs/decisions/ADR-0006-process-run-contract.md))
+   follows the process-run contract of 3leaps Crucible (a proposed record
+   there,
+   [ADR-0006](https://github.com/3leaps/crucible/blob/3636a79f7ea507bccfa6534655764d7b36c2ea05/docs/decisions/ADR-0006-process-run-contract.md))
    and is not a format of this project's own. Any control exchange is local
    and authenticated; there is no remote listener and no daemon.
 5. **Library errors are typed; exit codes belong to the tool.** The library
@@ -71,7 +74,8 @@ that later finds a converted file has neither.
 ## Consequences
 
 - A consumer that did not supervise a run reads the result file and nothing
-  else.
+  else. The absence of a result file means the run did not complete; it does
+  not say why.
 - A run ended by a signal leaves no result. The state it leaves on disk is
   recognisable under DDR-0003, but nothing records the cause.
 - A supervisor gets no progress from a long conversion.

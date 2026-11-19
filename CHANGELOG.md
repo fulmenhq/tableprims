@@ -63,7 +63,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Decision records for the library and language surfaces, the conversion
   result, exact values, the typed table and its documents, expected results,
   record keeping, and untrusted input and dependencies, under
-  `docs/decisions/` and `docs/security/`. All are proposed.
+  `docs/decisions/` and `docs/security/`. These seven records are proposed.
 
 ### Changed
 

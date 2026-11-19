@@ -22,9 +22,11 @@ describe which of these properties a conversion kept.
 
 ## Decision
 
-1. **Exact values never pass through binary floating point on the way.** An
-   integer or decimal is held as a signed coefficient and a scale. Arithmetic
-   on it, including rounding, is exact.
+1. **Exact values are held and checked exactly.** An integer or decimal is
+   held as a signed coefficient and a scale. Parsing, comparison and
+   arithmetic on it, including rounding, never go through binary floating
+   point. The only binary number is the one stored in a numeric cell, under
+   rule 7.
 2. **Exact values travel as canonical strings.** An integer is
    `-?(0|[1-9][0-9]*)`. A decimal is the same followed by a point and exactly
    the declared number of fractional digits. There is no negative zero, no
@@ -61,7 +63,8 @@ describe which of these properties a conversion kept.
 8. **Scale is carried by metadata, not by display.** A numeric cell stores
    `123.4500` as `123.45`. The declared scale is recorded with the column in
    the workbook's metadata ([DDR-0002](DDR-0002-typed-table-and-document-formats.md)),
-   and a number format shows it. The metadata is the authority.
+   and a number format shows it for scales up to 30. The metadata is the
+   authority.
 9. **Text is written as text.** A string is written as a string cell. It is
    never interpreted as a formula, a link or a number, whatever it looks
    like.

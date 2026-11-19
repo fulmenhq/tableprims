@@ -40,8 +40,11 @@ ship.
    limit.
 5. **Diagnostics carry no cell content.** A refusal gives a category, a rule,
    a row and a column.
-6. **Conversion is offline.** No crate in the dependency graph is a network
-   client; `deny.toml` bans them by name and `make deny` checks it.
+6. **Conversion is offline.** The crates in this workspace open no network
+   connection. `deny.toml` bans a list of network client, TLS and git
+   libraries by name, and `make deny`, part of `make check`, fails when one
+   enters the dependency graph. A list of names does not prove that no
+   dependency can reach the network; a new dependency is reviewed for it.
 7. **The workspace forbids `unsafe` code** in its own crates.
 8. **Only permissive licences are accepted.** The allowed list is in
    `deny.toml`. Copyleft licences are not accepted, a dual licence qualifies
