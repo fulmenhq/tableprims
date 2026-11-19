@@ -31,6 +31,7 @@ IPC and Parquet adapters are planned against the same typed contract.
 | ----------------------- | ------------------------------------------------ |
 | `crates/tableprims`     | Rust library: conversion semantics and policy    |
 | `crates/tableprims-cli` | Thin CLI package; builds the `tablebolt` binary  |
+| `crates/tableprims-xlsx` | XLSX write adapter; not yet used by the CLI      |
 
 ## Language surfaces
 
