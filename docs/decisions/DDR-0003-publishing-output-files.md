@@ -46,9 +46,9 @@ without knowing how the run ended.
    fail.
 5. **A published file is never removed.** When the converted file is
    published and the result then cannot be, the converted file stays and the
-   run reports it as incomplete. By then the name may refer to a file the run
-   did not write, and the system offers no removal that is conditional on
-   which file a name refers to.
+   run reports it as incomplete. The program does not remove it: by then the
+   name may refer to a file the run did not write, and the program has no
+   way to remove a name only if it still refers to the file it published.
 6. **Temporary names belong to one run.** The program's own carry a token
    drawn from the operating system's random source and do not grow with the
    destination's name. A component that writes the converted file may keep

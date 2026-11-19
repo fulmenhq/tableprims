@@ -35,20 +35,23 @@ that later finds a converted file has neither.
    that its digest and length are those of the converted file. How the two files are published so that this holds is
    [DDR-0003](DDR-0003-publishing-output-files.md). Two files cannot be
    published in one step, so only the second, the result, carries meaning.
-3. **Nothing required depends on telemetry.** The tool emits no progress or
-   telemetry stream and offers no control endpoint. If either is added it is
-   optional and fail-open: its failure does not fail a conversion, and its
-   presence is never evidence that a conversion completed.
-4. **Supervised-run telemetry, if added, uses the existing contract.** It
-   follows the process-run contract of 3leaps Crucible (a proposed record
-   there,
-   [ADR-0006](https://github.com/3leaps/crucible/blob/3636a79f7ea507bccfa6534655764d7b36c2ea05/docs/decisions/ADR-0006-process-run-contract.md))
-   and is not a format of this project's own. Any control exchange is local
-   and authenticated; there is no remote listener and no daemon.
+3. **Supervised runs adopt the process-run contract.** The tool will report
+   a run's start, progress and end to a supervisor through the process-run
+   contract of 3leaps Crucible (a proposed record there,
+   [ADR-0006](https://github.com/3leaps/crucible/blob/3636a79f7ea507bccfa6534655764d7b36c2ea05/docs/decisions/ADR-0006-process-run-contract.md)),
+   beginning with telemetry only, and not through a format of this project's
+   own. This is not implemented: the tool emits no progress or telemetry
+   stream and offers no control endpoint. Any control exchange added later is
+   local and authenticated; there is no remote listener and no daemon.
+4. **Nothing required depends on telemetry.** Telemetry is optional and
+   fail-open: its failure does not fail a conversion, and its presence is
+   never evidence that a conversion completed. The result document carries
+   no dependency on it.
 5. **Library errors are typed; exit codes belong to the tool.** The core
    library returns typed errors. An adapter gives each of its errors a
    category and a stable rule identifier, and the tool does the same for
-   document and file errors. The tool alone maps categories to exit codes, using existing entries of the
+   document and file errors. The tool alone maps categories to exit codes,
+   using existing entries of the
    [Fulmen exit-code catalog](https://github.com/fulmenhq/crucible/blob/95a89231a048edef830351de43695cc0ef58c0e8/config/library/foundry/exit-codes.yaml).
    The mapping is in [docs/xlsx-write.md](../xlsx-write.md). Process exit
    codes and transport status codes do not appear in library interfaces.
@@ -86,7 +89,8 @@ that later finds a converted file has neither.
   matching result has completed its conversion.
 - A run ended by a signal before the result is published leaves a state that
   is recognisable under DDR-0003, with nothing recording the cause.
-- A supervisor gets no progress from a long conversion.
+- Until rule 3 is implemented, a supervisor gets no progress from a long
+  conversion.
 - The fields a consumer in another project needs in order to interpret a
   result (status, run and input binding, output digest and length, and the
   matching rule) are candidates for a shared contract; see
