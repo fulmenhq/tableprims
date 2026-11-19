@@ -28,10 +28,11 @@ that later finds a converted file has neither.
    counts of the output or a located refusal. Cell content never appears in
    it. A run that ends before its result file can be opened or published
    leaves none: a usage error, a result name that is taken or cannot be
-   written, and a run that is killed.
+   written, and a run ended by a signal before the result is published.
 2. **The result document is the authoritative record.** A conversion is
-   complete only when a result with status `ok` matches the converted file.
-   How the two files are published so that this holds is
+   complete only when a result with status `ok` matches the converted file:
+   a reader checks that the result names the run and inputs it expects and
+   that its digest and length are those of the converted file. How the two files are published so that this holds is
    [DDR-0003](DDR-0003-publishing-output-files.md). Two files cannot be
    published in one step, so only the second, the result, carries meaning.
 3. **Nothing required depends on telemetry.** The tool emits no progress or
@@ -56,8 +57,10 @@ that later finds a converted file has neither.
    counts and located errors, and has no result file.
 7. **Cancellation is a library input and, for now, nothing more.** The
    adapter checks a caller-supplied flag before each row. The tool installs
-   no signal handler: a signal ends the process, the supervisor sees death by
-   signal, and no result is written. Status `cancelled` and exit codes 130
+   no signal handler: a signal ends the process and the supervisor sees death
+   by signal. A signal before the result is published leaves no result and
+   can leave a converted file without one. A signal after it is published
+   does not undo a result that matches. Status `cancelled` and exit codes 130
    and 143 are reserved and not produced.
 
 ## Alternatives
@@ -73,11 +76,15 @@ that later finds a converted file has neither.
 
 ## Consequences
 
-- A consumer that did not supervise a run reads the result file and nothing
-  else. The absence of a result file means the run did not complete; it does
-  not say why.
-- A run ended by a signal leaves no result. The state it leaves on disk is
-  recognisable under DDR-0003, but nothing records the cause.
+- A consumer that did not supervise a run does not need its exit status. It
+  reads the result file and checks it against the converted file and against
+  the run and inputs it expected. A result file that is absent or does not
+  match means the conversion is not complete; it does not say why.
+- A supervisor learns how the process ended from the process, separately
+  from the result file. The two can differ: a run killed after publishing a
+  matching result has completed its conversion.
+- A run ended by a signal before the result is published leaves a state that
+  is recognisable under DDR-0003, with nothing recording the cause.
 - A supervisor gets no progress from a long conversion.
 - The fields a consumer in another project needs in order to interpret a
   result (status, run and input binding, output digest and length, and the

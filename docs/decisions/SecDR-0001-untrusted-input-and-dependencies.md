@@ -91,6 +91,6 @@ ship.
 - Adding a dependency can fail on a licence deep in its graph.
 - The test-only workbook readers are not held to rule 13. They read files the
   tests wrote.
-- A run killed by a supervisor leaves no result. It can leave temporary
-  files and, when killed between the two publications, a workbook without a
-  result. DDR-0003 describes what a reader can conclude.
+- A run killed by a supervisor before its result is published leaves no
+  result. It can leave temporary files and, when killed between the two
+  publications, a workbook without a result. DDR-0003 describes what a reader can conclude.

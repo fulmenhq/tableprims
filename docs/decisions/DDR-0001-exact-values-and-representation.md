@@ -29,11 +29,15 @@ describe which of these properties a conversion kept.
    rule 7.
 2. **Exact values travel as canonical strings.** An integer is
    `-?(0|[1-9][0-9]*)`. A decimal is the same followed by a point and exactly
-   the declared number of fractional digits. There is no negative zero, no
-   exponent and no leading zero. A value has at most 38 digits. A bare JSON
+   the declared number of fractional digits; at scale zero it has no point
+   and is spelled as an integer. There is no negative zero, no exponent and
+   no redundant leading zero. A value has at most 38 digits. A bare JSON
    number is refused.
-3. **Syntax is judged before the schema.** A string that is not a number in
-   this grammar is malformed input whatever the column's type. A well-formed
+3. **For a number, syntax is judged before the schema.** This applies to
+   text read for an integer or decimal column; a string column takes any
+   text, such as `SKU-A` or `00123`, unchanged. Text that is not a number in
+   this grammar is malformed input, whether the column is integer or
+   decimal. A well-formed
    number that does not fit the column's declared type, precision or scale is
    a schema mismatch. A well-formed number of more than 38 digits exceeds a
    limit.
@@ -56,7 +60,8 @@ describe which of these properties a conversion kept.
    XLSX write profile `xlsx-write/r1` that means: at most 15 significant
    digits, the first of them between 10^-38 and 10^37 in magnitude, and the
    shortest decimal spelling of the nearest binary64 number equal to the
-   value. An integer must also equal that binary64 number exactly. The check
+   value. An integer must also equal that binary64 number exactly. Zero
+   qualifies at any declared scale. The check
    is made per value in exact arithmetic. The workbook writer and its number
    formatting are pinned as part of the profile; changing either is a new
    profile.
