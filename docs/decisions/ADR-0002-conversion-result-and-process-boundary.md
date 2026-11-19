@@ -45,9 +45,10 @@ that later finds a converted file has neither.
    [ADR-0006](https://github.com/3leaps/crucible/blob/3636a79f7ea507bccfa6534655764d7b36c2ea05/docs/decisions/ADR-0006-process-run-contract.md))
    and is not a format of this project's own. Any control exchange is local
    and authenticated; there is no remote listener and no daemon.
-5. **Library errors are typed; exit codes belong to the tool.** The library
-   and adapters return errors with a category and a stable rule identifier.
-   The tool alone maps them to exit codes, using existing entries of the
+5. **Library errors are typed; exit codes belong to the tool.** The core
+   library returns typed errors. An adapter gives each of its errors a
+   category and a stable rule identifier, and the tool does the same for
+   document and file errors. The tool alone maps categories to exit codes, using existing entries of the
    [Fulmen exit-code catalog](https://github.com/fulmenhq/crucible/blob/95a89231a048edef830351de43695cc0ef58c0e8/config/library/foundry/exit-codes.yaml).
    The mapping is in [docs/xlsx-write.md](../xlsx-write.md). Process exit
    codes and transport status codes do not appear in library interfaces.

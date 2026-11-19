@@ -39,10 +39,11 @@ projects consume should not be defined by one implementation.
    string. The schema is a separate document, not a header line in the row
    stream.
 5. **Documents are strict.** The schema, policy and result are each one JSON
-   object that names its format and revision in a `format` member. A reader
-   checks `format` first and refuses a revision it does not support. An
-   unknown member or a repeated key is refused at every depth. No member
-   names a path.
+   object that names its format and revision in a `format` member. A document
+   that is not well-formed JSON, or that repeats a key at any depth, is
+   refused as malformed. A reader then checks `format` before any other
+   member and refuses a revision it does not support. An unknown member is
+   refused at every depth. No member names a path.
 6. **Three revisions are kept apart.** The revision of a document's format,
    the revision of any shared contract, and the revision of an adapter's
    local profile are separate and are never inferred from one another. The

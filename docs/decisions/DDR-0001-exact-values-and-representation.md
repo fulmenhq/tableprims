@@ -31,7 +31,7 @@ describe which of these properties a conversion kept.
    `-?(0|[1-9][0-9]*)`. A decimal is the same followed by a point and exactly
    the declared number of fractional digits; at scale zero it has no point
    and is spelled as an integer. There is no negative zero, no exponent and
-   no redundant leading zero. A value has at most 38 digits. A bare JSON
+   no redundant leading zero. A value has at most 38 significant digits. A bare JSON
    number is refused.
 3. **For a number, syntax is judged before the schema.** This applies to
    text read for an integer or decimal column; a string column takes any
