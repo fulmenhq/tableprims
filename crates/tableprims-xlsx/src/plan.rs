@@ -105,6 +105,11 @@ impl Plan {
     /// does not fit the schema and a limit above this profile's ceiling.
     pub fn new(schema: &Schema, policy: &Policy) -> Result<Self, WriteError> {
         let columns = schema.columns();
+        // The policy against the schema, before either is judged against
+        // this profile.
+        let quantize = policy
+            .quantize_plan(schema)
+            .map_err(|error| WriteError::new(ErrorKind::Policy(error)))?;
         if columns.len() > MAX_COLUMNS {
             return Err(WriteError::new(ErrorKind::TooManyColumns));
         }
@@ -130,9 +135,6 @@ impl Plan {
         if rust_xlsxwriter::Worksheet::new().set_name(sheet).is_err() {
             return Err(WriteError::new(ErrorKind::SheetNameUnsupported));
         }
-        let quantize = policy
-            .quantize_plan(schema)
-            .map_err(|error| WriteError::new(ErrorKind::Policy(error)))?;
         for (column, request) in columns.iter().zip(&quantize) {
             if matches!(request, Some((_, mode)) if metadata::rounding_name(*mode).is_none()) {
                 return Err(WriteError::at_column(

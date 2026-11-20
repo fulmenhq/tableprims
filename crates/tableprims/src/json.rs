@@ -23,6 +23,7 @@ use std::collections::HashSet;
 pub const MAX_NESTING: usize = 64;
 
 /// A JSON value.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Json {
     /// `null`.

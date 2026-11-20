@@ -902,6 +902,18 @@ fn the_plan_refuses_what_a_workbook_cannot_hold() {
         );
         assert_eq!((error.row(), error.column()), (None, None), "{policy}");
     }
+    // The policy is judged against the schema before either is judged
+    // against this profile: a quantize entry that does not fit the schema is
+    // reported ahead of a missing worksheet name.
+    let error = plan(
+        TEXT,
+        r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","quantize":[{"column":"absent","scale":2,"rounding":"half-even"}]}"#,
+    )
+    .unwrap_err();
+    assert_eq!(
+        (error.category(), error.rule()),
+        (Category::SchemaMismatch, "quantize-unknown-column")
+    );
     let long = "i".repeat(32_768);
     let schema = format!(
         r#"{{"format":"tabular-exchange.schema/0","columns":[{{"id":"{long}","label":"L","type":"string","nullable":true}}]}}"#
