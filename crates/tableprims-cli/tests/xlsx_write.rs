@@ -1186,6 +1186,18 @@ fn run_on_pipe(name: &str) -> (Case, std::process::Child, fs::File) {
     (case, child, writer)
 }
 
+/// Writes the next row to a run that has been signalled. The run may be
+/// waiting for it, or may already have seen the signal and closed the pipe;
+/// both are expected, so a broken pipe is not an error here.
+#[cfg(unix)]
+fn feed_after_signal(writer: &mut fs::File, row: &[u8]) {
+    use std::io::Write;
+    match writer.write_all(row) {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+        other => other.unwrap(),
+    }
+}
+
 /// Replaces the pipe with an empty file so the directory lists as usual.
 #[cfg(unix)]
 fn unpipe(case: &Case) {
@@ -1205,7 +1217,7 @@ fn a_signal_while_reading_stops_the_run_and_says_so() {
         .write_all(b"[\"INV-1\",\"3\",\"12.3450\",true]\n")
         .unwrap();
     send(&child, "INT");
-    writer.write_all(b"[\"INV-2\",\"4\",null,null]\n").unwrap();
+    feed_after_signal(&mut writer, b"[\"INV-2\",\"4\",null,null]\n");
     drop(writer);
     let output = wait_bounded(child);
     unpipe(&case);
@@ -1232,7 +1244,7 @@ fn a_stopped_run_whose_result_name_is_taken_fails_without_the_signal() {
         .unwrap();
     fs::write(case.dir.join("result.json"), b"theirs").unwrap();
     send(&child, "INT");
-    writer.write_all(b"[\"INV-2\",\"4\",null,null]\n").unwrap();
+    feed_after_signal(&mut writer, b"[\"INV-2\",\"4\",null,null]\n");
     drop(writer);
     let output = wait_bounded(child);
     unpipe(&case);
