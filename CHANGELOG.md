@@ -103,6 +103,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are vendored unedited from 3leaps/crucible `v0.2.12` (CC0-1.0) under
   `third_party/3leaps-crucible/`, and the tests validate the card and every
   event against them with `jsonschema`, a new test-only dependency.
+- `make licenses-check` (part of `make check`): every package in the
+  resolved graph, dev-dependencies included, against the licence allow list
+  in `deny.toml`, which now admits MIT-0.
 
 ### Changed
 
