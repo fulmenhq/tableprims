@@ -81,6 +81,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   run or counted with a reason, the counts are exact, and each suite has a
   test that alters an expectation and requires a disagreement. See
   `docs/xlsx-write.md`.
+- Fault controls for the checks in the tests: a changed digit, a dropped or
+  added row, reordered or added columns, a changed representation, missing
+  or altered metadata and a truncated workbook, each reported by an
+  independent read-back of the workbook; a changed or truncated workbook,
+  rows cut at a line end and a result for another request, each failing the
+  match of a result; rows cut before the closing bracket of the last line
+  refused as malformed or invalid UTF-8. Native decimals above scale 30,
+  written without a number format, are read back exactly.
 
 ### Changed
 

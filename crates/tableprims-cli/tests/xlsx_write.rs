@@ -1280,3 +1280,217 @@ fn a_long_destination_name_is_accepted() {
     assert!(case.dir.join(&output).exists() && case.dir.join(&result).exists());
     assert_eq!(case.names().len(), 5);
 }
+
+// Fault controls for matching a result to a workbook and to a request, as
+// a consumer does (see "Matching a result" in docs/xlsx-write.md).
+
+/// What a caller records before it runs a conversion: the run identifier it
+/// passes and the length and SHA-256 of each input file.
+struct Request {
+    run_id: &'static str,
+    source: Value,
+    schema: Value,
+    policy: Value,
+}
+
+impl Request {
+    fn record(case: &Case, run_id: &'static str) -> Self {
+        Self {
+            run_id,
+            source: sum(&case.dir.join("rows.ndjson")),
+            schema: sum(&case.dir.join("schema.json")),
+            policy: sum(&case.dir.join("policy.json")),
+        }
+    }
+}
+
+/// The verdicts `output-agreement` and `requested-run-completed` for a
+/// result file's bytes, if there is one, and a candidate workbook's bytes.
+fn verdicts(result: Option<&[u8]>, workbook: &[u8], request: &Request) -> (bool, bool) {
+    let Some(result) = result.and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok()) else {
+        return (false, false);
+    };
+    let hex: String = Sha256::digest(workbook)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let output_agreement = result["format"] == "tabular-exchange.result/0"
+        && result["contract"] == "tabular-exchange/0.1.0"
+        && result["status"] == "ok"
+        && result["output"] == serde_json::json!({"sha256": hex, "bytes": workbook.len()});
+    let requested = output_agreement
+        && result["run_id"] == request.run_id
+        && result["inputs"]["source"] == request.source
+        && result["inputs"]["schema"] == request.schema
+        && result["inputs"]["policy"] == request.policy;
+    (output_agreement, requested)
+}
+
+fn read_pair(case: &Case) -> (Vec<u8>, Vec<u8>) {
+    (
+        fs::read(case.dir.join("result.json")).unwrap(),
+        fs::read(case.dir.join("out.xlsx")).unwrap(),
+    )
+}
+
+/// Control: a completed run reaches both verdicts, so a verdict lost below
+/// comes from the fault. A workbook without a result reaches neither.
+#[test]
+fn a_completed_run_matches_its_workbook_and_its_request() {
+    let case = Case::new("match-ok", SCHEMA, POLICY, ROWS);
+    let request = Request::record(&case, "case-0001");
+    assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+    let (result, workbook) = read_pair(&case);
+    assert_eq!(verdicts(Some(&result), &workbook, &request), (true, true));
+    assert_eq!(verdicts(None, &workbook, &request), (false, false));
+}
+
+/// A workbook changed after it was published no longer matches its result:
+/// cut short, as an interrupted copy leaves it, or one byte changed at the
+/// same length.
+#[test]
+fn a_changed_or_truncated_workbook_matches_nothing() {
+    let case = Case::new("match-truncated", SCHEMA, POLICY, ROWS);
+    let request = Request::record(&case, "case-0001");
+    assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+    let (result, workbook) = read_pair(&case);
+    for keep in [0, workbook.len() / 2, workbook.len() - 1] {
+        assert_eq!(
+            verdicts(Some(&result), &workbook[..keep], &request),
+            (false, false),
+            "{keep}"
+        );
+    }
+    for at in [0, workbook.len() / 2, workbook.len() - 1] {
+        let mut changed = workbook.clone();
+        changed[at] ^= 0x01;
+        assert_eq!(
+            verdicts(Some(&result), &changed, &request),
+            (false, false),
+            "{at}"
+        );
+    }
+}
+
+/// A result that is not this request's: another run identifier, or other
+/// schema or policy bytes than the caller recorded. The result still agrees
+/// with its workbook; only the match with the request fails.
+#[test]
+fn a_result_for_another_request_fails_only_the_request_match() {
+    let case = Case::new("match-other", SCHEMA, POLICY, ROWS);
+    let request = Request::record(&case, "case-0001");
+    assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+    let (result, workbook) = read_pair(&case);
+    let other = serde_json::json!({"sha256": "0".repeat(64), "bytes": 1});
+    let requests = [
+        Request {
+            run_id: "case-0002",
+            ..Request::record(&case, "")
+        },
+        Request {
+            schema: other.clone(),
+            ..Request::record(&case, "case-0001")
+        },
+        Request {
+            policy: other,
+            ..Request::record(&case, "case-0001")
+        },
+    ];
+    for (index, other) in requests.iter().enumerate() {
+        assert_eq!(
+            verdicts(Some(&result), &workbook, other),
+            (true, false),
+            "{index}"
+        );
+    }
+    assert_eq!(verdicts(Some(&result), &workbook, &request), (true, true));
+}
+
+/// A result whose wire format, contract revision or status is not the one a
+/// consumer reads as complete establishes neither verdict, though its output
+/// digest and length are the workbook's.
+#[test]
+fn a_result_that_is_not_ok_under_this_contract_matches_nothing() {
+    let case = Case::new("match-envelope", SCHEMA, POLICY, ROWS);
+    let request = Request::record(&case, "case-0001");
+    assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+    let (result, workbook) = read_pair(&case);
+    let result: Value = serde_json::from_slice(&result).unwrap();
+    for (member, value) in [
+        ("format", "tabular-exchange.result/1"),
+        ("contract", "tabular-exchange/0.2.0"),
+        ("status", "failed"),
+    ] {
+        let mut altered = result.clone();
+        altered[member] = Value::from(value);
+        let bytes = serde_json::to_vec(&altered).unwrap();
+        assert_eq!(
+            verdicts(Some(&bytes), &workbook, &request),
+            (false, false),
+            "{member}"
+        );
+    }
+}
+
+/// Rows cut short at the end of a line after the caller recorded them. The
+/// rows that remain are well formed, so the run completes and its result
+/// agrees with its workbook: only the match with the request shows that a
+/// row, or the final line terminator, is missing.
+#[test]
+fn rows_cut_at_a_line_end_fail_only_the_request_match() {
+    let full = ROWS.len();
+    let last_line = ROWS[..full - 1].rfind('\n').unwrap() + 1;
+    for (keep, rows) in [(last_line, 2), (full - 1, 3)] {
+        let case = Case::new(&format!("match-cut-{keep}"), SCHEMA, POLICY, ROWS);
+        let request = Request::record(&case, "case-0001");
+        fs::write(case.dir.join("rows.ndjson"), &ROWS[..keep]).unwrap();
+        assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+        assert_eq!(case.result()["counts"]["rows"], rows);
+        let (result, workbook) = read_pair(&case);
+        assert_eq!(
+            verdicts(Some(&result), &workbook, &request),
+            (true, false),
+            "{keep}"
+        );
+    }
+}
+
+/// Rows cut inside the last line are refused as malformed, and no workbook
+/// is published, so there is nothing to match.
+#[test]
+fn rows_cut_inside_a_line_are_refused() {
+    let full = ROWS.len();
+    let last_line = ROWS[..full - 1].rfind('\n').unwrap() + 1;
+    for keep in last_line + 1..full - 1 {
+        refused(
+            &format!("cut-{keep}"),
+            SCHEMA,
+            POLICY,
+            &ROWS[..keep],
+            61,
+            "refused",
+            serde_json::json!({"category": "invalid-input", "rule": "malformed-row", "row": 2}),
+        );
+    }
+}
+
+/// Rows cut inside a character of the last line are refused as invalid
+/// UTF-8 before they are read as JSON.
+#[test]
+fn rows_cut_inside_a_character_are_refused() {
+    let rows = format!("{ROWS}[\"INV-\u{e9}\",\"2\",null,null]\n");
+    let cut = rows.find('\u{e9}').unwrap() + 1;
+    let case = Case::new("cut-utf8", SCHEMA, POLICY, "");
+    fs::write(case.dir.join("rows.ndjson"), &rows.as_bytes()[..cut]).unwrap();
+    assert_eq!(case.run(&[]).status.code(), Some(61));
+    assert_eq!(
+        case.names(),
+        ["policy.json", "result.json", "rows.ndjson", "schema.json"]
+    );
+    let result = case.result();
+    assert_eq!(result["status"], "refused");
+    assert_eq!(
+        result["refusal"],
+        serde_json::json!({"category": "invalid-input", "rule": "invalid-utf8", "row": 3})
+    );
+}
