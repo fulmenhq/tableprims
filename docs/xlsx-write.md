@@ -317,30 +317,42 @@ and the environment variable. Telemetry never affects the workbook, the
 result file or the exit code, and its presence or absence is no evidence
 that a conversion completed: only a matching result is.
 
-With a runtime directory, the run identifier cannot be `.` or `..` or a name
-Windows reserves for a device (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`,
-`LPT1` to `LPT9`, in any case, with or without an extension); such a run
-ends with code 64 before anything is written.
+With a runtime directory, the run identifier cannot end in `.` (which covers
+`.` and `..`; Windows would drop the dot) or be a name Windows reserves for a
+device (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, in
+any case, with or without an extension); such a run ends with code 64 before
+anything is written.
 
 | File                          | Content                                                          |
 | ----------------------------- | ---------------------------------------------------------------- |
 | `DIR/proc/<run_id>/card.json` | the card: identity, producer and the absolute path of the stream |
 | `DIR/events/<run_id>.ndjson`  | the event stream, one JSON object per line                       |
 
-The card is checked against the contract's card schema before it is
-published under its name, and removed when the run ends, including a run
-stopped by a signal. A run killed outright leaves it behind; the contract
-calls such a card stale. The stream is kept. Directories are created
-owner-only (0700) and files owner read-write (0600) on Unix; on Windows the
-files inherit the runtime directory's permissions and are not owner-only.
-The runtime directory is trusted, as the destination is. A stream is
-created only if no file has its name; an existing file is left untouched
-and the run has no telemetry.
+The card is checked against the closed subset of the contract's card
+schema that this program writes (no control channel, an absolute stream
+path, a UTC start time) before anything of the run is created. It is
+published under its name only after `started` is in the stream, and
+removed when the run ends, including a run stopped by a signal. A run
+killed outright leaves it behind; the contract calls such a card stale. The
+stream is kept. `started_at` on the card is the time the run recorded as
+it began, shortly after the process started, not the operating system's
+start time; compare the two with a tolerance.
+
+Directories this program creates are owner-only (0700) and files owner
+read-write (0600) on Unix; an existing runtime directory, `proc` or
+`events` directory is used as it is. On Windows the files inherit the
+runtime directory's permissions and are not owner-only. The runtime
+directory is trusted, as the destination is. A stream is created only if no
+file has its name, and a card directory only if none exists for the run
+identifier; otherwise what is there is left untouched and the run has no
+telemetry. If the card cannot be published, the stream this run began is
+removed.
 
 Telemetry fails open: if a directory or file cannot be created or written,
 the run continues without it and says nothing. Writing happens on a
 separate thread, and the end of a run waits at most two seconds for the
-last event.
+last event. A file system that blocks that thread outright, such as a hung
+network mount, can still delay the exit of the process.
 
 ### Profile `tableprims.xlsx-write-run/v0`
 
@@ -362,8 +374,9 @@ The last event is the terminal one, written after the result file. It is
 `cancelled` was published; a run whose result could not be published ends
 with `failed` and reason `io-failure/result-write-failed`. A run killed
 outright, or ended by a second signal, leaves a stream with no terminal
-event. No event carries cell content or a path other than the card's
-pointer to the stream.
+event. No event carries cell content or a path; the card holds the one
+path, to the stream. Terminal events carry no `data.artifacts`: there is no
+artifact descriptor to point at.
 
 ## Vectors of the standard
 

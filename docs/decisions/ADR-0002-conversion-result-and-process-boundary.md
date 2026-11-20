@@ -44,9 +44,11 @@ that later finds a converted file has neither.
    own. This is not implemented: the tool emits no progress or telemetry
    stream and offers no control endpoint. Any control exchange added later is
    local and authenticated; there is no remote listener and no daemon.
-   *Implementation status, 2026-11-20: telemetry is implemented as
-   described in [docs/xlsx-write.md](../xlsx-write.md#telemetry); there is
-   still no control endpoint.*
+   *Implementation status, 2026-11-20: the sentence "This is not
+   implemented" describes the tool when this record was accepted. Telemetry
+   is now implemented as described in
+   [docs/xlsx-write.md](../xlsx-write.md#telemetry); there is still no
+   control endpoint.*
 4. **Nothing required depends on telemetry.** Telemetry is optional and
    fail-open: its failure does not fail a conversion, and its presence is
    never evidence that a conversion completed. The result document carries

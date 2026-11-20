@@ -368,11 +368,115 @@ fn telemetry_failures_do_not_affect_the_run() {
     }
 }
 
+/// The run-id rule applies when the environment names the directory.
+#[test]
+fn the_run_id_rule_applies_through_the_environment() {
+    let case = Case::new("id-env", ROWS);
+    let output = case
+        .command(&["--run-id", "a."])
+        .env("TABLEBOLT_RUNTIME_DIR", case.runtime())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(64));
+    assert!(!case.path("rt").exists() && !case.path("result.json").exists());
+}
+
+/// A relative runtime directory is taken from where the run starts, and the
+/// card still names the stream by absolute path (the card would otherwise
+/// fail its check and telemetry would be off).
+#[test]
+fn a_relative_runtime_directory_is_made_absolute() {
+    let case = Case::new("relative", ROWS);
+    let output = case
+        .command(&["--run-id", "case-1", "--runtime-dir", "rt"])
+        .current_dir(&case.dir)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        last(&events(&case.stream("case-1"), "case-1"))["event"],
+        "completed"
+    );
+}
+
+/// A card directory that already exists for the run id is not reused: the
+/// run has no telemetry and the directory is left as it was.
+#[test]
+fn an_existing_card_directory_turns_telemetry_off() {
+    let case = Case::new("card-dir", ROWS);
+    fs::create_dir_all(case.path("rt/proc/case-1")).unwrap();
+    fs::write(case.path("rt/proc/case-1/theirs"), b"x").unwrap();
+    let runtime = case.runtime();
+    let output = case.run(&["--run-id", "case-1", "--runtime-dir", &runtime]);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    assert!(!case.stream("case-1").exists());
+    assert_eq!(fs::read(case.path("rt/proc/case-1/theirs")).unwrap(), b"x");
+    assert!(!case.card("case-1").exists());
+}
+
+/// A run that converted but could not publish its result ends `failed`
+/// with the result-write rule, never `completed`.
+#[test]
+fn a_converted_run_without_a_result_ends_failed() {
+    let rows = "[\"INV-1\",\"3\"]\n".repeat(200_000);
+    let case = Case::new("orphan", &rows);
+    let runtime = case.runtime();
+    let mut child = case
+        .command(&["--run-id", "case-1", "--runtime-dir", &runtime])
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Take the result name once the workbook is being written.
+    let started = std::time::Instant::now();
+    let writing = |name: &str| name.starts_with(".tablebolt-") && name.ends_with(".workbook.tmp");
+    while !fs::read_dir(&case.dir)
+        .unwrap()
+        .any(|e| writing(&e.unwrap().file_name().to_string_lossy()))
+    {
+        assert!(child.try_wait().unwrap().is_none(), "ended before writing");
+        assert!(started.elapsed().as_secs() < 60, "no workbook temporary");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    fs::write(case.path("result.json"), b"theirs").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(54));
+    let events = events(&case.stream("case-1"), "case-1");
+    assert_eq!(
+        last(&events)["data"],
+        serde_json::json!({"status": "failed", "reason": "io-failure/result-write-failed"})
+    );
+    assert!(!case.card("case-1").exists());
+}
+
 #[cfg(unix)]
 mod unix {
     use super::*;
     use std::io::Write;
     use std::os::unix::process::ExitStatusExt;
+
+    /// A child that is killed if the test ends before it does, so a failed
+    /// assertion never leaves a run waiting on its pipe.
+    struct Running(Option<std::process::Child>);
+
+    impl Running {
+        fn child(&self) -> &std::process::Child {
+            self.0.as_ref().unwrap()
+        }
+
+        fn finish(mut self) -> Output {
+            wait_bounded(self.0.take().unwrap())
+        }
+    }
+
+    impl Drop for Running {
+        fn drop(&mut self) {
+            if let Some(mut child) = self.0.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
 
     fn send(child: &std::process::Child, signal: &str) {
         let status = Command::new("sh")
@@ -385,7 +489,7 @@ mod unix {
 
     /// A run whose rows come through a pipe, started with telemetry, and
     /// the writing end of the pipe once the run has opened it.
-    fn run_on_pipe(case: &Case, extra: &[&str]) -> (std::process::Child, fs::File) {
+    fn run_on_pipe(case: &Case, extra: &[&str]) -> (Running, fs::File) {
         let rows = case.path("rows.ndjson");
         fs::remove_file(&rows).unwrap();
         assert!(Command::new("mkfifo")
@@ -401,6 +505,7 @@ mod unix {
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
+        let child = Running(Some(child));
         let writer = fs::OpenOptions::new().write(true).open(&rows).unwrap();
         (child, writer)
     }
@@ -452,7 +557,7 @@ mod unix {
         until(|| case.card("case-1").exists());
         let card: Value = serde_json::from_slice(&fs::read(case.card("case-1")).unwrap()).unwrap();
         assert!(schema("process-card.schema.json").is_valid(&card), "{card}");
-        assert_eq!(card["pid"], child.id());
+        assert_eq!(card["pid"], child.child().id());
         assert_eq!(card["run_id"], "case-1");
         assert_eq!(
             card["capabilities"],
@@ -478,10 +583,10 @@ mod unix {
             fs::read_to_string(case.stream("case-1"))
                 .is_ok_and(|text| text.contains("\"heartbeat\""))
         });
-        send(&child, "INT");
+        send(child.child(), "INT");
         feed(&mut writer, b"[\"INV-2\",\"4\"]\n");
         drop(writer);
-        let output = wait_bounded(child);
+        let output = child.finish();
         unpipe(&case);
         assert_eq!(output.status.signal(), Some(2));
         let events = events(&case.stream("case-1"), "case-1");
@@ -505,10 +610,10 @@ mod unix {
         let (child, mut writer) = run_on_pipe(&case, &[]);
         writer.write_all(b"[\"INV-1\",\"3\"]\n").unwrap();
         fs::write(case.path("result.json"), b"theirs").unwrap();
-        send(&child, "TERM");
+        send(child.child(), "TERM");
         feed(&mut writer, b"[\"INV-2\",\"4\"]\n");
         drop(writer);
-        let output = wait_bounded(child);
+        let output = child.finish();
         unpipe(&case);
         assert_eq!(output.status.code(), Some(54));
         let events = events(&case.stream("case-1"), "case-1");
@@ -524,16 +629,40 @@ mod unix {
     #[test]
     fn a_killed_run_leaves_a_stale_card_and_no_terminal_event() {
         let case = Case::new("killed", "");
-        let (mut child, mut writer) = run_on_pipe(&case, &[]);
+        let (child, mut writer) = run_on_pipe(&case, &[]);
         writer.write_all(b"[\"INV-1\",\"3\"]\n").unwrap();
+        // A published card always points at a stream that begins with
+        // `started`.
         until(|| case.card("case-1").exists());
-        child.kill().unwrap();
-        let _ = child.wait();
+        assert!(fs::read_to_string(case.stream("case-1"))
+            .unwrap()
+            .contains("\"started\""));
+        drop(child);
         drop(writer);
         unpipe(&case);
         assert!(case.card("case-1").exists());
         let events = events(&case.stream("case-1"), "case-1");
         assert!(!["completed", "canceled", "failed"]
             .contains(&last(&events)["event"].as_str().unwrap()));
+    }
+
+    /// SIGTERM ends a waiting run with `canceled` and reason `SIGTERM`.
+    #[test]
+    fn sigterm_is_reported_as_the_reason() {
+        let case = Case::new("term", "");
+        let (child, mut writer) = run_on_pipe(&case, &[]);
+        writer.write_all(b"[\"INV-1\",\"3\"]\n").unwrap();
+        until(|| case.card("case-1").exists());
+        send(child.child(), "TERM");
+        feed(&mut writer, b"[\"INV-2\",\"4\"]\n");
+        drop(writer);
+        let output = child.finish();
+        unpipe(&case);
+        assert_eq!(output.status.signal(), Some(15));
+        let events = events(&case.stream("case-1"), "case-1");
+        assert_eq!(
+            last(&events)["data"],
+            serde_json::json!({"status": "cancelled", "reason": "SIGTERM"})
+        );
     }
 }

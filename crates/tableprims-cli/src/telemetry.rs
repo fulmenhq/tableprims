@@ -20,7 +20,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::thread;
@@ -47,16 +47,15 @@ const FINISH_WAIT: Duration = Duration::from_secs(2);
 /// The read of the rows the run is in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Phase {
-    Scan = 0,
-    Write = 1,
+    Scan,
+    Write,
 }
 
 impl Phase {
-    fn name(raw: u8) -> &'static str {
-        if raw == Phase::Write as u8 {
-            "write"
-        } else {
-            "scan"
+    fn name(self) -> &'static str {
+        match self {
+            Phase::Scan => "scan",
+            Phase::Write => "write",
         }
     }
 }
@@ -80,11 +79,15 @@ pub(crate) enum Terminal {
     },
 }
 
-/// Counters the conversion updates; read by the emitter thread.
+/// The phase bit of [`Progress::state`].
+const WRITE_PHASE: u64 = 1 << 63;
+
+/// What the conversion updates and the emitter thread reads: the phase in
+/// the top bit and the bytes read in this phase below it, in one value so
+/// the two are always read together.
 #[derive(Default)]
 pub(crate) struct Progress {
-    done: AtomicU64,
-    phase: AtomicU8,
+    state: AtomicU64,
 }
 
 impl Progress {
@@ -98,8 +101,23 @@ impl Progress {
 
     /// Starts a read of the rows from its first byte.
     pub(crate) fn phase(&self, phase: Phase) {
-        self.done.store(0, Ordering::Relaxed);
-        self.phase.store(phase as u8, Ordering::Relaxed);
+        let bit = if phase == Phase::Write {
+            WRITE_PHASE
+        } else {
+            0
+        };
+        self.state.store(bit, Ordering::Relaxed);
+    }
+
+    /// The phase and the bytes read in it.
+    fn read(&self) -> (Phase, u64) {
+        let state = self.state.load(Ordering::Relaxed);
+        let phase = if state & WRITE_PHASE == 0 {
+            Phase::Scan
+        } else {
+            Phase::Write
+        };
+        (phase, state & !WRITE_PHASE)
     }
 }
 
@@ -112,8 +130,9 @@ pub(crate) struct Counting<R> {
 impl<R: Read> Read for Counting<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let count = self.inner.read(buffer)?;
+        // Below 2^63 bytes the count never reaches the phase bit.
         self.progress
-            .done
+            .state
             .fetch_add(count as u64, Ordering::Relaxed);
         Ok(count)
     }
@@ -150,7 +169,13 @@ impl Telemetry {
 
     /// Starts telemetry for `run_id` under `runtime_dir`. `total` is the
     /// length of the rows file when it is a regular file.
-    pub(crate) fn start(runtime_dir: Option<&Path>, run_id: &str, total: Option<u64>) -> Self {
+    /// `started_at` is when the program started, as close as it can tell.
+    pub(crate) fn start(
+        runtime_dir: Option<&Path>,
+        run_id: &str,
+        total: Option<u64>,
+        started_at: SystemTime,
+    ) -> Self {
         let Some(runtime_dir) = runtime_dir else {
             return Self::off();
         };
@@ -161,7 +186,7 @@ impl Telemetry {
             runtime_dir,
             run_id: run_id.to_owned(),
             total,
-            started_at: timestamp(SystemTime::now()),
+            started_at: timestamp(started_at),
         };
         let progress = Arc::new(Progress::default());
         let (sender, receiver) = mpsc::channel();
@@ -220,8 +245,8 @@ fn emitter(setup: &Setup, progress: &Progress, messages: &Receiver<Message>) {
             Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}
         }
-        let done = progress.done.load(Ordering::Relaxed);
-        let phase = Phase::name(progress.phase.load(Ordering::Relaxed));
+        let (phase, done) = progress.read();
+        let phase = phase.name();
         if done != last_done {
             let mut data = Map::new();
             data.insert("phase".into(), json!(phase));
@@ -337,35 +362,29 @@ fn card_bytes(setup: &Setup, events: &Path) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// Creates the directories and the stream, checks and publishes the card,
-/// and emits `started`. Returns the stream and the card's path.
+/// The card for a run, once it passes [`check_card`]; `None` otherwise, and
+/// then no card is published.
+fn card_for(setup: &Setup, events: &Path) -> Option<Vec<u8>> {
+    let bytes = card_bytes(setup, events)?;
+    check_card(&bytes).then_some(bytes)
+}
+
+/// Checks the card, creates the directories and the stream, emits
+/// `started`, then publishes the card, so a published card always points at
+/// a stream that begins with `started`. On any failure nothing this run
+/// created is left behind. Returns the stream and the card's path.
 fn open(setup: &Setup) -> Option<(Stream, PathBuf)> {
     let proc_dir = setup.runtime_dir.join("proc");
     let events_dir = setup.runtime_dir.join("events");
     for directory in [&setup.runtime_dir, &proc_dir, &events_dir] {
         create_dir(directory, true)?;
     }
+    let events = events_dir.join(format!("{}.ndjson", setup.run_id));
+    // The serialized card is checked before anything of this run exists.
+    let bytes = card_for(setup, &events)?;
     let card_dir = proc_dir.join(&setup.run_id);
     create_dir(&card_dir, false)?;
-    let events = events_dir.join(format!("{}.ndjson", setup.run_id));
-    let opened = (|| {
-        let file = create_file(&events)?;
-        let bytes = card_bytes(setup, &events)?;
-        // The serialized card is checked before it is given its name.
-        if !check_card(&bytes) {
-            return None;
-        }
-        let card = card_dir.join("card.json");
-        let staging = card_dir.join(".card.json.tmp");
-        let mut staged = create_file(&staging)?;
-        let written = staged.write_all(&bytes).is_ok() && fs::rename(&staging, &card).is_ok();
-        if !written {
-            let _ = fs::remove_file(&staging);
-            return None;
-        }
-        Some((file, card))
-    })();
-    let Some((file, card)) = opened else {
+    let Some(file) = create_file(&events) else {
         let _ = fs::remove_dir(&card_dir);
         return None;
     };
@@ -381,6 +400,19 @@ fn open(setup: &Setup) -> Option<(Stream, PathBuf)> {
         data.insert("source_bytes".into(), json!(total));
     }
     stream.emit("started", "INFO", Value::Object(data), true);
+    let card = card_dir.join("card.json");
+    let staging = card_dir.join(".card.json.tmp");
+    let published = stream.file.is_some()
+        && create_file(&staging).is_some_and(|mut staged| staged.write_all(&bytes).is_ok())
+        && fs::rename(&staging, &card).is_ok();
+    if !published {
+        let _ = fs::remove_file(&staging);
+        let _ = fs::remove_dir(&card_dir);
+        // The stream holds only `started`, from this run; it is removed.
+        drop(stream);
+        let _ = fs::remove_file(&events);
+        return None;
+    }
     Some((stream, card))
 }
 
@@ -531,12 +563,14 @@ fn civil(days: u64) -> (u64, u64, u64) {
     (year, month, day)
 }
 
-/// Whether `run_id` can name this run's telemetry files: not `.` or `..`,
-/// and not a name Windows reserves for a device (`CON`, `PRN`, `AUX`,
+/// Whether `run_id` can name this run's telemetry files: not ending in `.`
+/// (which covers `.` and `..`), and not a name Windows reserves for a device (`CON`, `PRN`, `AUX`,
 /// `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, in any case, with or without
 /// an extension), which is refused on every platform.
 pub(crate) fn usable_run_id(run_id: &str) -> bool {
-    if run_id == "." || run_id == ".." {
+    // `.` and `..` name directories, and Windows drops a trailing dot, so
+    // `a.` would name the same file as `a`.
+    if run_id.ends_with('.') {
         return false;
     }
     let stem = run_id
@@ -682,6 +716,8 @@ mod tests {
         for bad in [
             ".",
             "..",
+            "...",
+            "a.",
             "CON",
             "con",
             "Nul",
@@ -695,7 +731,7 @@ mod tests {
             assert!(!usable_run_id(bad), "{bad}");
         }
         for good in [
-            "...",
+            ".a",
             "case-0001",
             "CONSOLE",
             "COM0",
@@ -709,11 +745,27 @@ mod tests {
         }
     }
 
+    /// A card that fails the check is not produced for publication: here
+    /// a stream path that is not absolute.
     #[test]
-    fn a_blank_environment_value_is_unset() {
-        // Only the flag path is exercised here; the environment is process
-        // global and is covered by the integration tests.
-        let flag = PathBuf::from("/tmp/x");
-        assert_eq!(runtime_dir(Some(flag.clone())), Some(flag));
+    fn only_a_checked_card_is_published() {
+        let absolute = std::env::temp_dir().join("events/case-0001.ndjson");
+        assert!(card_for(&setup(), &absolute).is_some());
+        assert!(card_for(&setup(), Path::new("events/case-0001.ndjson")).is_none());
+    }
+
+    #[test]
+    fn progress_reads_the_phase_and_bytes_together() {
+        let progress = Arc::new(Progress::default());
+        let mut sink = Vec::new();
+        progress
+            .reader(&b"0123456789"[..])
+            .read_to_end(&mut sink)
+            .unwrap();
+        assert_eq!(progress.read(), (Phase::Scan, 10));
+        progress.phase(Phase::Write);
+        assert_eq!(progress.read(), (Phase::Write, 0));
+        progress.reader(&b"abc"[..]).read_to_end(&mut sink).unwrap();
+        assert_eq!(progress.read(), (Phase::Write, 3));
     }
 }

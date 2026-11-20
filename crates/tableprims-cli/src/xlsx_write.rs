@@ -616,6 +616,8 @@ pub(crate) fn run(
     run_id: Option<String>,
     runtime_dir: Option<&Path>,
 ) -> (u8, Option<String>) {
+    // As close to the start of the program as this run can record.
+    let started = std::time::SystemTime::now();
     let signals = match Signals::install() {
         Ok(signals) => signals,
         Err(error) => {
@@ -641,7 +643,7 @@ pub(crate) fn run(
         return (
             EXIT_USAGE,
             Some(String::from(
-                "with a runtime directory, the run identifier cannot be '.', '..' or a Windows device name",
+                "with a runtime directory, the run identifier cannot end in '.' or be a Windows device name",
             )),
         );
     }
@@ -684,7 +686,7 @@ pub(crate) fn run(
         .ok()
         .filter(std::fs::Metadata::is_file)
         .map(|metadata| metadata.len());
-    let telemetry = Telemetry::start(runtime_dir, &run_id, total);
+    let telemetry = Telemetry::start(runtime_dir, &run_id, total, started);
     let end = match links(&files.output, &token, "workbook") {
         Ok(false) => Err(Failure::new(
             Category::IoFailure,
