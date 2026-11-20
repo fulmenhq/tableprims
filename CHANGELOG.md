@@ -81,6 +81,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   run or counted with a reason, the counts are exact, and each suite has a
   test that alters an expectation and requires a disagreement. See
   `docs/xlsx-write.md`.
+- Fault controls for the checks in the tests: a changed digit, a dropped
+  row, reordered columns, missing metadata and a truncated workbook, each
+  reported by an independent read-back of the workbook; a truncated
+  workbook, and rows truncated at a line end, each failing the match of a
+  result; rows truncated inside a line refused as malformed.
 
 ### Changed
 

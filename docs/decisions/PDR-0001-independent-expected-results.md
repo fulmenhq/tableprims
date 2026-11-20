@@ -75,6 +75,15 @@ obligations here does not change its status.
 - One external suite is pinned in this repository: the vectors and fixtures
   of the Tabular Exchange Standard from the fulmenhq/crucible release
   `v0.5.1`, under `third_party/crucible/`.
-- Of the faults in rule 10, the tests in this repository introduce a changed
-  digit and an input that changes between its two reads. The others have no
-  such test yet.
+- Each fault in rule 10 has a test that introduces it and sees a check fail.
+  A changed digit, a dropped row and reordered columns are written by the
+  workbook writer from input that differs in that way, and the independent
+  read-back reports them. Missing metadata and a truncated workbook happen
+  after a workbook is written, so they are applied to the writer's bytes;
+  the read-back reports both, and matching a result to its workbook fails on
+  the truncated one. Rows truncated inside a line are refused by the reader.
+  Rows truncated at a line end are well formed, so only the match with the
+  caller's record of the request shows them. An input that changes between
+  its two reads is refused.
+- The matching in those tests is the tests' own. It is not run against the
+  standard's matching vectors.

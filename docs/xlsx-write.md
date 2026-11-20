@@ -294,6 +294,11 @@ establishes neither verdict.
 A result whose `status` is not `ok` establishes neither verdict, and so does a
 workbook with no result.
 
+Rows cut short at the end of a line are well formed rows, so a run on them
+completes and its result agrees with its workbook. Only
+`requested-run-completed` shows that the file is not the one the caller
+recorded. Rows cut inside a line are refused with `malformed-row`.
+
 ## Vectors of the standard
 
 The vectors, fixtures and JSON Schemas of contract revision

@@ -1280,3 +1280,126 @@ fn a_long_destination_name_is_accepted() {
     assert!(case.dir.join(&output).exists() && case.dir.join(&result).exists());
     assert_eq!(case.names().len(), 5);
 }
+
+// Fault controls for matching a result to a workbook and to a request, as
+// a consumer does (see "Matching a result" in docs/xlsx-write.md).
+
+/// What a caller records before it runs a conversion: the run identifier it
+/// passes and the length and SHA-256 of each input file.
+struct Request {
+    run_id: &'static str,
+    source: Value,
+    schema: Value,
+    policy: Value,
+}
+
+impl Request {
+    fn record(case: &Case, run_id: &'static str) -> Self {
+        Self {
+            run_id,
+            source: sum(&case.dir.join("rows.ndjson")),
+            schema: sum(&case.dir.join("schema.json")),
+            policy: sum(&case.dir.join("policy.json")),
+        }
+    }
+}
+
+/// The verdicts `output-agreement` and `requested-run-completed` for a
+/// result file's bytes, if there is one, and a candidate workbook's bytes.
+fn verdicts(result: Option<&[u8]>, workbook: &[u8], request: &Request) -> (bool, bool) {
+    let Some(result) = result.and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok()) else {
+        return (false, false);
+    };
+    let hex: String = Sha256::digest(workbook)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let output_agreement = result["format"] == "tabular-exchange.result/0"
+        && result["contract"] == "tabular-exchange/0.1.0"
+        && result["status"] == "ok"
+        && result["output"] == serde_json::json!({"sha256": hex, "bytes": workbook.len()});
+    let requested = output_agreement
+        && result["run_id"] == request.run_id
+        && result["inputs"]["source"] == request.source
+        && result["inputs"]["schema"] == request.schema
+        && result["inputs"]["policy"] == request.policy;
+    (output_agreement, requested)
+}
+
+fn read_pair(case: &Case) -> (Vec<u8>, Vec<u8>) {
+    (
+        fs::read(case.dir.join("result.json")).unwrap(),
+        fs::read(case.dir.join("out.xlsx")).unwrap(),
+    )
+}
+
+/// Control: a completed run reaches both verdicts, so a verdict lost below
+/// comes from the fault. A workbook without a result reaches neither.
+#[test]
+fn a_completed_run_matches_its_workbook_and_its_request() {
+    let case = Case::new("match-ok", SCHEMA, POLICY, ROWS);
+    let request = Request::record(&case, "case-0001");
+    assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+    let (result, workbook) = read_pair(&case);
+    assert_eq!(verdicts(Some(&result), &workbook, &request), (true, true));
+    assert_eq!(verdicts(None, &workbook, &request), (false, false));
+}
+
+/// A workbook cut short after it was published, as an interrupted copy
+/// leaves it, no longer matches its result.
+#[test]
+fn a_truncated_workbook_matches_nothing() {
+    let case = Case::new("match-truncated", SCHEMA, POLICY, ROWS);
+    let request = Request::record(&case, "case-0001");
+    assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+    let (result, workbook) = read_pair(&case);
+    for keep in [0, workbook.len() / 2, workbook.len() - 1] {
+        assert_eq!(
+            verdicts(Some(&result), &workbook[..keep], &request),
+            (false, false),
+            "{keep}"
+        );
+    }
+}
+
+/// Rows cut short at the end of a line after the caller recorded them. The
+/// rows that remain are well formed, so the run completes and its result
+/// agrees with its workbook: only the match with the request shows that a
+/// row, or the final line terminator, is missing.
+#[test]
+fn rows_cut_at_a_line_end_fail_only_the_request_match() {
+    let full = ROWS.len();
+    let last_line = ROWS[..full - 1].rfind('\n').unwrap() + 1;
+    for (keep, rows) in [(last_line, 2), (full - 1, 3)] {
+        let case = Case::new(&format!("match-cut-{keep}"), SCHEMA, POLICY, ROWS);
+        let request = Request::record(&case, "case-0001");
+        fs::write(case.dir.join("rows.ndjson"), &ROWS[..keep]).unwrap();
+        assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+        assert_eq!(case.result()["counts"]["rows"], rows);
+        let (result, workbook) = read_pair(&case);
+        assert_eq!(
+            verdicts(Some(&result), &workbook, &request),
+            (true, false),
+            "{keep}"
+        );
+    }
+}
+
+/// Rows cut inside the last line are refused as malformed, and no workbook
+/// is published, so there is nothing to match.
+#[test]
+fn rows_cut_inside_a_line_are_refused() {
+    let full = ROWS.len();
+    let last_line = ROWS[..full - 1].rfind('\n').unwrap() + 1;
+    for keep in last_line + 1..full - 1 {
+        refused(
+            &format!("cut-{keep}"),
+            SCHEMA,
+            POLICY,
+            &ROWS[..keep],
+            61,
+            "refused",
+            serde_json::json!({"category": "invalid-input", "rule": "malformed-row", "row": 2}),
+        );
+    }
+}
