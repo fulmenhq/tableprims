@@ -360,8 +360,11 @@ removed.
 Telemetry fails open: if a directory or file cannot be created or written,
 the run continues without it and says nothing. Writing happens on a
 separate thread, and the end of a run waits at most two seconds for the
-last event. A file system that blocks that thread outright, such as a hung
-network mount, can still delay the exit of the process.
+last event. If that thread is still setting up or writing when the wait
+ends, the process exits without it: a card already published is left
+stale and the stream has no terminal event, as for a run that is killed.
+A file system that blocks that thread outright, such as a hung network
+mount, can still delay the exit of the process.
 
 ### Profile `tableprims.xlsx-write-run/v0`
 
