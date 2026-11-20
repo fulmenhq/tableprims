@@ -17,6 +17,8 @@
 //! | 61   | malformed input |
 //! | 62   | a type or value the destination cannot represent under the policy |
 //! | 64   | command-line usage error |
+//! | 130  | stopped by SIGINT |
+//! | 143  | stopped by SIGTERM |
 //!
 //! A broken pipe while printing is treated as success: the reader chose to stop.
 //! Any other failure to write requested output, including help text, exits 54.
@@ -35,6 +37,7 @@ use serde_json::json;
 mod digest;
 mod identity;
 mod publish;
+mod signals;
 mod xlsx_write;
 
 /// Success.

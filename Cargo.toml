@@ -23,6 +23,9 @@ sha2 = { version = "0.10", default-features = false, features = ["std"] }
 getrandom = { version = "0.4", default-features = false }
 canonprims-core = "=0.1.5"
 canonprims-json = "=0.1.5"
+# Sets a flag on SIGINT and SIGTERM so a run can stop and say so. Used by the
+# CLI only; default features (signal iterators and channels) stay off.
+signal-hook = { version = "0.4.6", default-features = false }
 # The workbook writer is pinned exactly: its number formatting is part of the
 # write profile. The `ryu`, `zmij` and `zlib` features stay off.
 rust_xlsxwriter = { version = "=0.102.0", default-features = false, features = ["constant_memory"] }

@@ -89,6 +89,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   match of a result; rows cut before the closing bracket of the last line
   refused as malformed or invalid UTF-8. Native decimals above scale 30,
   written without a number format, are read back exactly.
+- `tablebolt xlsx write` stops on the first SIGINT or SIGTERM: it removes
+  its temporary files, publishes a result with status `cancelled` and exits
+  130 or 143. A second signal ends the process at once. Adds `signal-hook`
+  to the CLI package. ADR-0003 (proposed) records this and supersedes rule 7
+  of ADR-0002.
 
 ### Changed
 

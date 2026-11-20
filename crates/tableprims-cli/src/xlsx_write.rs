@@ -16,7 +16,6 @@
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 
 use serde_json::{json, Map, Value};
 use tableprims::documents::{
@@ -27,6 +26,7 @@ use tableprims_xlsx::{Category, ErrorKind, Outcome, Plan, ResolvedLimits, WriteE
 use crate::digest::{self, HashingReader, HashingWriter, Sum};
 use crate::identity;
 use crate::publish::{directory, links, same_entry, Pending};
+use crate::signals::Signals;
 
 /// Format identifier of the result file.
 pub(crate) const RESULT_FORMAT: &str = "tabular-exchange.result/0";
@@ -48,6 +48,7 @@ pub(crate) const EXIT_DATA_INVALID: u8 = 60;
 pub(crate) const EXIT_PARSE_ERROR: u8 = 61;
 pub(crate) const EXIT_TRANSFORMATION_FAILED: u8 = 62;
 pub(crate) const EXIT_SIGNAL_INT: u8 = 130;
+pub(crate) const EXIT_SIGNAL_TERM: u8 = 143;
 pub(crate) const EXIT_USAGE: u8 = 64;
 
 /// The files of one invocation.
@@ -85,7 +86,7 @@ impl Failure {
     fn status(&self) -> &'static str {
         match self.exit {
             EXIT_DATA_INVALID | EXIT_PARSE_ERROR | EXIT_TRANSFORMATION_FAILED => "refused",
-            EXIT_SIGNAL_INT => "cancelled",
+            EXIT_SIGNAL_INT | EXIT_SIGNAL_TERM => "cancelled",
             _ => "failed",
         }
     }
@@ -152,6 +153,12 @@ fn write_failure(rule: &'static str, error: &io::Error) -> Failure {
         _ => EXIT_FILE_WRITE_ERROR,
     };
     Failure::new(Category::IoFailure, rule, exit)
+}
+
+/// A run stopped by a signal. The exit code is settled in [`run`], which
+/// knows which signal came.
+fn cancelled() -> Failure {
+    Failure::new(Category::Cancelled, "cancelled", EXIT_SIGNAL_INT)
 }
 
 /// Maps an adapter error to a category, rule and exit code.
@@ -358,7 +365,12 @@ fn open_rows(path: &Path) -> Result<BufReader<HashingReader<File>>, Failure> {
     Ok(BufReader::with_capacity(64 << 10, HashingReader::new(file)))
 }
 
-fn convert(files: &Files, token: &str, report: &mut Report) -> Result<Done, Failure> {
+fn convert(
+    files: &Files,
+    token: &str,
+    signals: &Signals,
+    report: &mut Report,
+) -> Result<Done, Failure> {
     if files.output.exists() {
         return Err(Failure::new(
             Category::IoFailure,
@@ -380,12 +392,11 @@ fn convert(files: &Files, token: &str, report: &mut Report) -> Result<Done, Fail
             Failure::new(Category::Internal, "policy-digest-failed", EXIT_FAILURE)
         })?);
 
-    // No signal handler is installed: an interrupt ends the process and
-    // leaves no result file.
-    let cancel = AtomicBool::new(false);
+    // A signal sets this flag; both reads check it before every row.
+    let cancel = signals.flag();
     let mut first = open_rows(&files.input)?;
     let scan = plan
-        .scan(&mut first, &cancel)
+        .scan(&mut first, cancel)
         .map_err(|error| adapter_failure(&error))?;
     let first = first
         .into_inner()
@@ -400,7 +411,7 @@ fn convert(files: &Files, token: &str, report: &mut Report) -> Result<Done, Fail
     // Row data is staged beside the destination and nowhere else.
     let staging = directory(&files.output);
     let outcome = scan
-        .write(&mut second, &mut sink, Some(staging), &cancel)
+        .write(&mut second, &mut sink, Some(staging), cancel)
         .map_err(|error| adapter_failure(&error))?;
     let second = second
         .into_inner()
@@ -420,6 +431,11 @@ fn convert(files: &Files, token: &str, report: &mut Report) -> Result<Done, Fail
     file.sync_all()
         .map_err(|error| write_failure("output-write-failed", &error))?;
     drop(file);
+    // The last point at which a signal stops the run. Once the workbook is
+    // published, the run completes and publishes its result.
+    if signals.stopped() {
+        return Err(cancelled());
+    }
     pending.publish().map_err(|error| match error.kind() {
         io::ErrorKind::AlreadyExists => {
             Failure::new(Category::IoFailure, "output-exists", EXIT_FILE_WRITE_ERROR)
@@ -559,6 +575,18 @@ pub(crate) fn parse_run_id(text: &str) -> Result<String, String> {
 pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>) {
     // The token names this run's temporary files and, without a caller
     // identifier, the run itself. Without one nothing is written.
+    let signals = match Signals::install() {
+        Ok(signals) => signals,
+        Err(error) => {
+            return (
+                EXIT_FAILURE,
+                Some(format!(
+                    "cannot install the signal handlers ({})",
+                    error.kind()
+                )),
+            );
+        }
+    };
     let Ok(token) = random_token() else {
         return (
             EXIT_FAILURE,
@@ -608,8 +636,19 @@ pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>)
         )),
         // Anything else wrong with the directory is reported by the step
         // that needs it.
-        _ => convert(files, &token, &mut report),
+        _ => convert(files, &token, &signals, &mut report),
     };
+    // A stopped run exits with the code of the signal that stopped it.
+    let end = end.map_err(|failure| {
+        if failure.category == Category::Cancelled.as_str() {
+            Failure {
+                exit: signals.exit_code(),
+                ..failure
+            }
+        } else {
+            failure
+        }
+    });
     let result = result_json(&run_id, &report, &end);
     if let Err(error) = publish_result(pending, file, &result) {
         let exit = write_failure("result-write-failed", &error).exit;
@@ -746,7 +785,10 @@ mod tests {
         );
         let refused = Failure::new(Category::SchemaMismatch, "x", EXIT_DATA_INVALID);
         assert_eq!(refused.status(), "refused");
-        let cancelled = Failure::new(Category::Cancelled, "cancelled", EXIT_SIGNAL_INT);
-        assert_eq!(cancelled.status(), "cancelled");
+        for exit in [EXIT_SIGNAL_INT, EXIT_SIGNAL_TERM] {
+            let cancelled = Failure::new(Category::Cancelled, "cancelled", exit);
+            assert_eq!(cancelled.status(), "cancelled");
+        }
+        assert_eq!((EXIT_SIGNAL_INT, EXIT_SIGNAL_TERM), (130, 143));
     }
 }

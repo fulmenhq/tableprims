@@ -225,7 +225,7 @@ fail, and a workbook can be left without a result. Give each run its own names. 
 - `format` is the wire format of the result and `contract` the revision of
   the standard it was written to. Every member outside `extensions` is
   defined by the standard and can be read without knowing this program.
-- `status` is `ok`, `refused` or `failed`; `cancelled` is reserved. `output` and `counts` are present
+- `status` is `ok`, `refused`, `failed` or `cancelled`. `output` and `counts` are present
   only for `ok`. Any other status has
   `"refusal": {"category": "…", "rule": "…", "row": 12, "column": "amount"}`,
   with `row` (zero-based) and `column` where they apply. Cell content never
@@ -380,16 +380,27 @@ the counts above.
 | 61   | malformed rows, schema or policy                                     | `refused` |
 | 62   | a type, value or sheet name the workbook cannot represent; no sheet  | `refused` |
 | 64   | command-line usage error; no result file                             |           |
+| 130  | stopped by SIGINT                                                    | `cancelled` |
+| 143  | stopped by SIGTERM                                                   | `cancelled` |
 
 A result file is written for every code except 64, when it can be.
 
-This version installs no signal handler. An interrupt or a kill ends the
-process at once: a supervisor sees death by signal, not exit code 130 or 143,
-and no result file with status `cancelled` is produced; those codes and that
-status are reserved. No partly written file is left under the `--output` or `--result` name,
-because each is published only when complete; a kill between the two leaves a
-workbook without a result. Temporary files can remain
-beside either and may be deleted: this program's are named
+The first SIGINT or SIGTERM stops the run before its next row, or after the
+workbook is written and before it is published. The run then removes its
+temporary files, publishes a result with status `cancelled` and category and
+rule `cancelled`, and exits 130 after SIGINT or 143 after SIGTERM. A signal
+that arrives once the workbook is published does not stop the run: it
+completes. A second SIGINT or SIGTERM ends the process at once with the code
+of that signal and no result. On Windows, Ctrl-C is handled as SIGINT;
+Windows sends no SIGTERM, and Ctrl-Break or closing the console ends the
+process without a result. The rules are in
+[ADR-0003](decisions/ADR-0003-signals-stop-a-run.md).
+
+A kill, a second signal, or a signal that is not handled ends the process
+where it stands. No partly written file is left under the `--output` or
+`--result` name, because each is published only when complete; ending
+between the two leaves a workbook without a result. Temporary files can
+remain beside either and may be deleted: this program's are named
 `.tablebolt-<32 hexadecimal digits>.` followed by a purpose and `.tmp`, and
 the workbook writer's scratch files `.tmp` followed by six characters.
 

@@ -1057,9 +1057,9 @@ fn long_rows(count: usize) -> String {
     "[\"INV-1\",\"3\",\"12.3450\",true]\n".repeat(count)
 }
 
-/// Without a signal handler a kill ends the process where it stands. The
-/// workbook is only ever published under its name when complete, so nothing
-/// may be at the destination. What can remain is this program's temporary
+/// A kill (SIGKILL on Unix) cannot be handled: it ends the process where it
+/// stands. The workbook is only ever published under its name when
+/// complete, so nothing may be at the destination. What can remain is this program's temporary
 /// files and the workbook writer's scratch files.
 #[test]
 fn a_killed_run_leaves_no_workbook_and_no_result() {
@@ -1075,6 +1075,123 @@ fn a_killed_run_leaves_no_workbook_and_no_result() {
         let ours = name.starts_with(".tablebolt-") && name.ends_with(".tmp");
         let scratch = name.starts_with(".tmp");
         assert!(INPUTS.contains(&name.as_str()) || ours || scratch, "{name}");
+    }
+}
+
+/// Sends `signal` (`INT` or `TERM`) to a running child.
+#[cfg(unix)]
+fn send(child: &std::process::Child, signal: &str) {
+    let status = Command::new("kill")
+        .arg(format!("-{signal}"))
+        .arg(child.id().to_string())
+        .status()
+        .unwrap();
+    assert!(status.success(), "kill -{signal}");
+}
+
+#[cfg(unix)]
+fn check_cancelled(case: &Case, output: &Output, code: i32) -> Value {
+    assert_eq!(output.status.code(), Some(code));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "tablebolt: cancelled: cancelled: cancelled\n"
+    );
+    // The workbook's temporary and the writer's scratch files are gone.
+    assert_eq!(
+        case.names(),
+        ["policy.json", "result.json", "rows.ndjson", "schema.json"]
+    );
+    let result = case.result();
+    assert_eq!(result["status"], "cancelled");
+    assert_eq!(
+        result["refusal"],
+        serde_json::json!({"category": "cancelled", "rule": "cancelled"})
+    );
+    result
+}
+
+/// SIGINT or SIGTERM while the workbook is written stops the run: no
+/// workbook, a result that says `cancelled`, and the code of the signal.
+#[cfg(unix)]
+#[test]
+fn a_signal_while_writing_stops_the_run_and_says_so() {
+    for (signal, code) in [("INT", 130), ("TERM", 143)] {
+        let case = Case::new(
+            &format!("signal-{signal}"),
+            SCHEMA,
+            POLICY,
+            &long_rows(400_000),
+        );
+        let mut child = spawn_long(&case);
+        wait_for_workbook_temporary(&case, &mut child);
+        send(&child, signal);
+        let output = child.wait_with_output().unwrap();
+        let result = check_cancelled(&case, &output, code);
+        // The first read was complete, so the rows are bound.
+        assert_eq!(
+            result["inputs"]["source"],
+            sum(&case.dir.join("rows.ndjson"))
+        );
+    }
+}
+
+/// A signal during the first read. The rows come through a pipe, so the
+/// signal is sent while the run is known to be reading them.
+#[cfg(unix)]
+#[test]
+fn a_signal_while_reading_stops_the_run_and_says_so() {
+    use std::io::Write;
+    let case = Case::new("signal-read", SCHEMA, POLICY, "");
+    let rows = case.dir.join("rows.ndjson");
+    fs::remove_file(&rows).unwrap();
+    assert!(Command::new("mkfifo")
+        .arg(&rows)
+        .status()
+        .unwrap()
+        .success());
+    let child = spawn_long(&case);
+    // Opening blocks until the run opens the rows, after it has read the
+    // schema and the policy and installed its handlers.
+    let mut writer = fs::OpenOptions::new().write(true).open(&rows).unwrap();
+    writer
+        .write_all(b"[\"INV-1\",\"3\",\"12.3450\",true]\n")
+        .unwrap();
+    send(&child, "INT");
+    writer.write_all(b"[\"INV-2\",\"4\",null,null]\n").unwrap();
+    drop(writer);
+    let output = child.wait_with_output().unwrap();
+    // The pipe is gone once read; put a file back for the listing.
+    let _ = fs::remove_file(&rows);
+    fs::write(&rows, "").unwrap();
+    let result = check_cancelled(&case, &output, 130);
+    // The rows were not read to their end, so they are not bound.
+    assert!(result["inputs"].get("source").is_none(), "{result}");
+    assert_eq!(
+        result["inputs"]["schema"],
+        sum(&case.dir.join("schema.json"))
+    );
+}
+
+/// A second signal ends the process at once with the code of that signal.
+/// Whether the first had already let the run stop and publish its result
+/// depends on timing; either way there is no workbook.
+#[cfg(unix)]
+#[test]
+fn a_second_signal_ends_the_run_at_once() {
+    let case = Case::new("signal-twice", SCHEMA, POLICY, &long_rows(400_000));
+    let mut child = spawn_long(&case);
+    wait_for_workbook_temporary(&case, &mut child);
+    send(&child, "INT");
+    send(&child, "TERM");
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        matches!(output.status.code(), Some(130 | 143)),
+        "{output:?}"
+    );
+    let names = case.names();
+    assert!(!names.contains(&"out.xlsx".to_owned()), "{names:?}");
+    if names.contains(&"result.json".to_owned()) {
+        assert_eq!(case.result()["status"], "cancelled");
     }
 }
 
