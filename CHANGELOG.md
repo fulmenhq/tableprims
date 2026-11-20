@@ -93,8 +93,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its temporary files, publishes a result with status `cancelled`, and then
   ends by that signal on Unix (a shell reports 130 or 143) or exits 130 on
   Windows. A second signal ends the process at once. Adds `signal-hook` to
-  the CLI package. ADR-0003 (proposed) records this and would supersede rule
-  7 of ADR-0002.
+  the CLI package. ADR-0003 records this and supersedes rule 7 of ADR-0002.
 
 ### Changed
 

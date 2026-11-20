@@ -9,8 +9,8 @@ accepts it; see
 | ID | Title | Status |
 | --- | --- | --- |
 | [ADR-0001](ADR-0001-library-first-rust-and-go.md) | A library first, in Rust and then pure Go, under one version | accepted |
-| [ADR-0002](ADR-0002-conversion-result-and-process-boundary.md) | The conversion result is the record; process integration stays at the tool | accepted; ADR-0003 proposes to supersede rule 7 |
-| [ADR-0003](ADR-0003-signals-stop-a-run.md) | SIGINT and SIGTERM stop a run, which says so in its result | proposed |
+| [ADR-0002](ADR-0002-conversion-result-and-process-boundary.md) | The conversion result is the record; process integration stays at the tool | accepted; rule 7 superseded by ADR-0003 |
+| [ADR-0003](ADR-0003-signals-stop-a-run.md) | SIGINT and SIGTERM stop a run, which says so in its result | accepted |
 | [DDR-0001](DDR-0001-exact-values-and-representation.md) | Exact values, and representation changes only by policy | accepted |
 | [DDR-0002](DDR-0002-typed-table-and-document-formats.md) | A typed table model, strict documents, and what belongs in a shared contract | superseded by DDR-0004 |
 | [DDR-0003](DDR-0003-publishing-output-files.md) | Output files are published complete, under names that did not exist | accepted |

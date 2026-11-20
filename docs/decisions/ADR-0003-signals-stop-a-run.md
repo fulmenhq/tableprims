@@ -1,7 +1,7 @@
 ---
 id: "ADR-0003"
 title: "SIGINT and SIGTERM stop a run, which says so in its result"
-status: "proposed"
+status: "accepted"
 date: "2026-11-20"
 supersedes: "ADR-0002-conversion-result-and-process-boundary.md (rule 7 only)"
 relates-to:
@@ -29,8 +29,7 @@ status `cancelled` with the category `cancelled`. The workspace forbids
 
 ## Decision
 
-This record replaces rule 7 of ADR-0002 once it is accepted. The other rules
-of ADR-0002 stand.
+This record replaces rule 7 of ADR-0002. The other rules of ADR-0002 stand.
 
 1. **The first SIGINT or SIGTERM asks the run to stop.** The tool installs
    handlers for both before it does anything else, whatever disposition it
