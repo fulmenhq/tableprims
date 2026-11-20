@@ -72,7 +72,9 @@ obligations here does not change its status.
   than the implementer.
 - Results from opening a workbook in a spreadsheet application are recorded
   separately from automated results and are not implied by them.
-- No external suite is pinned in this repository yet.
+- One external suite is pinned in this repository: the vectors and fixtures
+  of the Tabular Exchange Standard from the fulmenhq/crucible release
+  `v0.5.1`, under `third_party/crucible/`.
 - Of the faults in rule 10, the tests in this repository introduce a changed
   digit and an input that changes between its two reads. The others have no
   such test yet.
