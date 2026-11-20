@@ -100,11 +100,16 @@ impl Plan {
     ///
     /// Refuses a schema with more columns than a worksheet, a column
     /// identifier or label longer than a cell, a logical type or rounding
-    /// mode this profile does not know, a worksheet name a workbook
-    /// does not allow, a quantize request that does not fit the schema and a
-    /// limit above this profile's ceiling.
+    /// mode this profile does not know, a policy that names no worksheet, a
+    /// worksheet name a workbook does not allow, a quantize request that
+    /// does not fit the schema and a limit above this profile's ceiling.
     pub fn new(schema: &Schema, policy: &Policy) -> Result<Self, WriteError> {
         let columns = schema.columns();
+        // The policy against the schema, before either is judged against
+        // this profile.
+        let quantize = policy
+            .quantize_plan(schema)
+            .map_err(|error| WriteError::new(ErrorKind::Policy(error)))?;
         if columns.len() > MAX_COLUMNS {
             return Err(WriteError::new(ErrorKind::TooManyColumns));
         }
@@ -121,16 +126,15 @@ impl Plan {
                 ));
             }
         }
-        let sheet = policy.sheet();
+        let Some(sheet) = policy.sheet() else {
+            return Err(WriteError::new(ErrorKind::SheetNameMissing));
+        };
         if sheet.eq_ignore_ascii_case(RESERVED_SHEET) {
             return Err(WriteError::new(ErrorKind::SheetNameReserved));
         }
         if rust_xlsxwriter::Worksheet::new().set_name(sheet).is_err() {
             return Err(WriteError::new(ErrorKind::SheetNameUnsupported));
         }
-        let quantize = policy
-            .quantize_plan(schema)
-            .map_err(|error| WriteError::new(ErrorKind::Policy(error)))?;
         for (column, request) in columns.iter().zip(&quantize) {
             if matches!(request, Some((_, mode)) if metadata::rounding_name(*mode).is_none()) {
                 return Err(WriteError::at_column(

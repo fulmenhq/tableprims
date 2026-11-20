@@ -35,7 +35,15 @@
 //! build that unwinds on panic; the panic message still reaches the panic
 //! hook.
 //!
-//! The formats are provisional and may change before the first release.
+//! The worksheet name and the limits come from the `tableprims` extension
+//! namespace of the policy. [`Plan::new`] refuses a policy that names no
+//! worksheet. Refusals of rows and values carry the categories and rule
+//! identifiers of the Tabular Exchange Standard, contract revision
+//! `tabular-exchange/0.1.0`, published in fulmenhq/crucible; the rules of
+//! this profile are its own.
+//!
+//! The workbook layout is provisional and may change before the first
+//! release.
 
 mod error;
 pub mod metadata;

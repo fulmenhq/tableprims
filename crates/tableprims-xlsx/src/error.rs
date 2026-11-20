@@ -64,6 +64,8 @@ pub enum ErrorKind {
     UnsupportedRounding,
     /// The schema has more columns than a worksheet.
     TooManyColumns,
+    /// The policy names no worksheet.
+    SheetNameMissing,
     /// The worksheet name is the one reserved for table metadata.
     SheetNameReserved,
     /// The worksheet name is not valid in a workbook.
@@ -220,6 +222,7 @@ impl WriteError {
             ErrorKind::UnsupportedType => (C::UnsupportedType, "unsupported-type"),
             ErrorKind::UnsupportedRounding => (C::UnsupportedType, "unsupported-rounding"),
             ErrorKind::TooManyColumns => (C::ResourceLimit, "too-many-columns"),
+            ErrorKind::SheetNameMissing => (C::UnsupportedRepresentation, "sheet-name-missing"),
             ErrorKind::SheetNameReserved => (C::SchemaMismatch, "sheet-name-reserved"),
             ErrorKind::SheetNameUnsupported => {
                 (C::UnsupportedRepresentation, "sheet-name-unsupported")
@@ -271,6 +274,9 @@ impl WriteError {
                         (C::SchemaMismatch, "temporal-fraction-mismatch")
                     }
                     TemporalError::InvalidOffset => (C::InvalidInput, "temporal-invalid-offset"),
+                    TemporalError::OffsetMismatch => {
+                        (C::SchemaMismatch, "temporal-offset-mismatch")
+                    }
                     TemporalError::NegativeZeroOffset => {
                         (C::InvalidInput, "temporal-negative-zero-offset")
                     }

@@ -5,6 +5,10 @@
 //! This crate holds exact numbers, typed rows and schemas, and the schema
 //! and policy documents. Conversions are implemented by adapter crates, so
 //! [`conversions`] here returns an empty list.
+//!
+//! The value grammar, the rows encoding and the two documents are those of
+//! the Tabular Exchange Standard, contract revision
+//! `tabular-exchange/0.1.0`, published in fulmenhq/crucible.
 
 pub mod binary64;
 pub mod documents;

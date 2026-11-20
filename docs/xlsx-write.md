@@ -1,8 +1,17 @@
 # Writing an XLSX workbook
 
 `tablebolt xlsx write` converts typed rows to one worksheet of a new workbook
-and records the outcome in a result file. The formats on this page are
-provisional and may change before the first release.
+and records the outcome in a result file.
+
+The rows, the schema, the policy and the result follow the Tabular Exchange
+Standard, contract revision `tabular-exchange/0.1.0`, published in
+[fulmenhq/crucible](https://github.com/fulmenhq/crucible). The standard
+defines the value grammar, the three documents, the categories and rule
+identifiers of a refusal, and how a result is matched to an output and to a
+request. This page describes what `tablebolt` adds: the workbook, the
+`tableprims` extension namespace, its own rule identifiers, its limits and its
+exit codes. The workbook layout and the extension members are provisional and
+may change before the first release.
 
 ```sh
 tablebolt xlsx write --input rows.ndjson --schema schema.json \
@@ -21,6 +30,11 @@ is one array with exactly one element per schema column. An element is `null`,
 `true`, `false` or a string. Integers, decimals, dates and timestamps are
 strings; a bare JSON number is refused.
 
+An element that is a JSON number, such as `7`, `-0`, `1.5` or `1e3`, is
+refused with rule `numeric-literal`: quote the value. An element that only
+begins like a number, such as `-`, `01`, `1.`, `1e` or `1x`, is refused with
+`malformed-row`: the line is not JSON.
+
 | Column type        | String form                                             |
 | ------------------ | ------------------------------------------------------- |
 | `string`           | any text; `""` is an empty string, distinct from `null` |
@@ -31,11 +45,22 @@ strings; a bare JSON number is refused.
 | `local-timestamp`  | `YYYY-MM-DDThh:mm:ss` plus exactly `fraction` digits    |
 | `offset-timestamp` | as local timestamp, then `Z` or `±hh:mm`                |
 
+A timestamp is first judged as a timestamp of either type, and only then
+against its column. Text with a bad calendar or clock, a point that no digit
+follows, or trailing text that is not `Z` or an offset in range is
+`invalid-input` whatever the column declares (`temporal-malformed`,
+`temporal-invalid-date`, `temporal-invalid-time`, `temporal-invalid-offset`,
+or `temporal-negative-zero-offset` for `-00:00`). A well-formed timestamp that
+is not the one the column declares is `schema-mismatch`:
+`temporal-fraction-mismatch` when the number of fraction digits differs, and
+otherwise `temporal-offset-mismatch` when a `local-timestamp` column is given
+an offset or an `offset-timestamp` column is given none.
+
 **Schema**:
 
 ```json
 {
-  "format": "tableprims.schema/0",
+  "format": "tabular-exchange.schema/0",
   "columns": [
     {"id": "invoice", "label": "Invoice", "type": "string", "nullable": false},
     {"id": "amount", "label": "Amount", "type": "decimal", "precision": 12, "scale": 2, "nullable": true},
@@ -48,17 +73,75 @@ strings; a bare JSON number is refused.
 
 ```json
 {
-  "format": "tableprims.policy/0",
+  "format": "tabular-exchange.policy/0",
   "exact_numbers": "require-exact",
   "quantize": [{"column": "amount", "scale": 2, "rounding": "half-even"}],
-  "sheet": "Data",
-  "limits": {"max_rows": 1048575, "max_line_bytes": 1048576, "max_empty_ranges": 65536}
+  "extensions": {
+    "tableprims": {
+      "sheet": "Data",
+      "limits": {"max_rows": 1048575, "max_line_bytes": 1048576, "max_empty_ranges": 65536}
+    }
+  }
 }
 ```
 
-`quantize` and `limits` are optional. Rounding modes are `half-even`,
+`quantize` is optional. Rounding modes are `half-even`,
 `half-away-from-zero`, `toward-zero`, `toward-positive` and `toward-negative`.
-Both documents refuse unknown members and repeated keys.
+A target `scale` above 38 is an invalid member (`invalid-input`,
+`policy-member-invalid`); one that is at most 38 and above the column's
+declared precision does not fit the schema (`schema-mismatch`,
+`quantize-scale-too-large`).
+
+Both documents refuse unknown members and repeated keys. A number in either
+is written `0` or as a nonzero digit followed by digits; any other spelling
+is `schema-malformed` or `policy-malformed`. A number spelled that way and
+too large for its member is `schema-member-invalid` or
+`policy-member-invalid`, however large it is.
+
+### Policy extensions
+
+The settings of this command are members of the `tableprims` namespace under
+`extensions`:
+
+| Member   | Required | Meaning                                                                        |
+| -------- | -------- | ------------------------------------------------------------------------------ |
+| `sheet`  | yes      | name of the data worksheet; not empty and not `_tableprims` in any letter case |
+| `limits` | no       | `max_rows`, `max_line_bytes` and `max_empty_ranges`, each optional             |
+
+- `sheet` or `limits` at the top level of a policy is an unknown member
+  (`invalid-input`, `policy-member-unknown`), as is any member of the
+  namespace other than these two.
+- A policy that carries any other namespace is refused (`invalid-input`,
+  `policy-extension-unsupported`). No setting is ignored.
+- A policy without `extensions`, without the `tableprims` namespace or
+  without `sheet` in it is a complete policy under the standard, and this
+  command cannot run it: a workbook needs a worksheet name. It is refused
+  after the policy document has been read, with `unsupported-representation`,
+  `sheet-name-missing`, and exit code 62.
+- The standard bounds `extensions` for every reader, and the bounds are
+  judged before any namespace is looked up: at most 8 namespaces, at most 256
+  values in total, no string or member name longer than 256 code points and
+  no number above 9007199254740991 (each `policy-member-invalid`), and a
+  document nested at most 6 deep (`policy-malformed`). A namespace that is
+  not lowercase letters and digits in groups joined by single hyphens, or is
+  longer than 64 characters, is `policy-member-invalid`; a namespace whose
+  value is not an object is `policy-not-an-object`.
+
+### Documents written for earlier builds
+
+Before it adopted the standard, this program read `tableprims.schema/0` and
+`tableprims.policy/0` and wrote `tableprims.result/0`. Those are different
+formats and are not read: a schema or policy that carries one is refused with
+`schema-format-unsupported` or `policy-format-unsupported`. To move a
+document:
+
+- schema: change `format` to `tabular-exchange.schema/0`;
+- policy: change `format` to `tabular-exchange.policy/0` and move `sheet` and
+  `limits` from the top level into `extensions.tableprims`;
+- result: results are not rewritten. A reader of `tabular-exchange.result/0`
+  finds the source digest under `inputs.source` (formerly `inputs.rows`) and
+  `tool`, `backend`, `limits` and `policy_digest` under
+  `extensions.tableprims` (formerly at the top level).
 
 ## Exact numbers
 
@@ -89,7 +172,9 @@ for it.
 ## The result file
 
 A run is complete only when the result file exists, its `status` is `ok` and
-its `output` digest and length match the workbook. The workbook is published
+its `output` digest and length match the workbook; see
+[Matching a result](#matching-a-result) for what that does and does not
+establish. The workbook is published
 first and the result file second, so a workbook without a matching result is
 incomplete, whatever is at the `--output` name. The result file is opened
 before the conversion starts; if it still cannot be published afterwards, the
@@ -107,19 +192,16 @@ fail, and a workbook can be left without a result. Give each run its own names. 
 
 ```json
 {
-  "format": "tableprims.result/0",
+  "format": "tabular-exchange.result/0",
+  "contract": "tabular-exchange/0.1.0",
   "status": "ok",
   "run_id": "case-0001",
-  "tool": {"name": "tablebolt", "version": "0.1.0", "library": "0.1.0"},
-  "backend": {"name": "rust_xlsxwriter", "version": "0.102.0"},
   "profile": {"id": "xlsx-write/r1", "sha256": "…"},
-  "policy_digest": "…",
   "inputs": {
-    "rows": {"sha256": "…", "bytes": 79},
+    "source": {"sha256": "…", "bytes": 79},
     "schema": {"sha256": "…", "bytes": 335},
     "policy": {"sha256": "…", "bytes": 148}
   },
-  "limits": {"max_rows": 1048575, "max_line_bytes": 1048576, "max_empty_ranges": 65536},
   "output": {"sha256": "…", "bytes": 6103},
   "counts": {
     "rows": 3,
@@ -128,10 +210,21 @@ fail, and a workbook can be left without a result. Give each run its own names. 
       {"id": "amount", "representation": "native", "null": 1, "empty": 0,
        "numeric": 2, "text_fallback": 0, "text_forced": 0, "quantized": 1, "scale_changed": 2}
     ]
+  },
+  "extensions": {
+    "tableprims": {
+      "tool": {"name": "tablebolt", "version": "0.1.0", "library": "0.1.0"},
+      "backend": {"name": "rust_xlsxwriter", "version": "0.102.0"},
+      "limits": {"max_rows": 1048575, "max_line_bytes": 1048576, "max_empty_ranges": 65536},
+      "policy_digest": "…"
+    }
   }
 }
 ```
 
+- `format` is the wire format of the result and `contract` the revision of
+  the standard it was written to. Every member outside `extensions` is
+  defined by the standard and can be read without knowing this program.
 - `status` is `ok`, `refused` or `failed`; `cancelled` is reserved. `output` and `counts` are present
   only for `ok`. Any other status has
   `"refusal": {"category": "…", "rule": "…", "row": 12, "column": "amount"}`,
@@ -141,21 +234,65 @@ fail, and a workbook can be left without a result. Give each run its own names. 
   or `auto-` followed by 32 hexadecimal digits from the system's random
   source.
 - Digests are lowercase hexadecimal SHA-256 of the file's bytes. An input
-  appears under `inputs` only when it was read to its end.
+  appears under `inputs` only when it was read to its end: `source` is the
+  `--input` file, `schema` and `policy` the two documents. `inputs.policy` is
+  the digest of the policy file exactly as supplied.
 - `representation` is `native`, `text-fallback`, `text-forced` or `text`. The
   five counters after `empty` appear on integer and decimal columns only.
   `quantized` counts cells whose value changed and `scale_changed` cells whose
   scale changed.
 - `profile.sha256` is the digest of the profile definition: the writer and
   its version, the limits and the layout of the hidden worksheet.
+- `extensions.tableprims` holds what this program records beyond the
+  standard. `tool` and `backend` are always present. `limits`, the limits in
+  effect, and `policy_digest` are present once the policy has been read and
+  checked against the schema and the profile. A reader that does not know
+  the namespace ignores it; deleting `extensions` changes nothing the
+  standard defines. The namespace holds 13 values nested to depth 4 of the
+  document, inside the bounds the standard sets on `extensions` (8
+  namespaces, 256 values, strings of 256 code points, depth 6).
 - `policy_digest` is the SHA-256 of the
   [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) canonical form of the
-  resolved policy: an object with `format` (`tableprims.resolved-policy/0`),
-  `exact_numbers`, `quantize` (entries in schema column order), `sheet`,
-  `limits` (defaults filled in) and `profile`. Two policy files that resolve
-  to the same policy have the same digest. Expected canonical forms and
-  digests are in
+  resolved policy. That object is this program's own and is not a document
+  of the standard. It has the shape of a policy, with every default filled
+  in, and adds the profile: `format` (`tableprims.resolved-policy/0`),
+  `exact_numbers`, `quantize` (entries in schema column order),
+  `extensions.tableprims.sheet`, `extensions.tableprims.limits` (all three,
+  defaults filled in) and `profile`. Two policy files that resolve to the
+  same policy have the same digest. Expected canonical forms and digests are
+  in
   [`policy-digest.json`](../crates/tableprims-cli/tests/fixtures/policy-digest.json).
+
+### Matching a result
+
+`tablebolt` writes results and does not read them. A consumer that holds a
+result and a candidate workbook matches them as the standard describes, and
+reaches one of two verdicts:
+
+- `output-agreement`: the consumer supplies nothing beyond the result and
+  the workbook. The result is valid, says `ok`, and its `output` length and
+  digest are the workbook's.
+- `requested-run-completed`: the consumer also supplies its own record of
+  the request, which is the run identifier it passed as `--run-id` and the
+  length and SHA-256 of the rows, schema and policy files. The result is
+  valid, says `ok`, carries that `run_id` and those lengths and digests under
+  `inputs`, and its `output` length and digest are the workbook's.
+
+`output-agreement` says nothing about which request produced the pair. A
+result left by an earlier run, beside a workbook whose bytes happen to be the
+same, agrees perfectly. A consumer that acts on behalf of a request needs
+`requested-run-completed`.
+
+The stronger verdict needs facts the caller recorded when it made the request,
+not facts read back from the result. A caller that omits `--run-id` gets a
+generated identifier, which it learns only from the result, so it cannot reach
+`requested-run-completed`. Pass `--run-id`, do not reuse one for requests that
+must be told apart, and record the length and digest of the rows, schema and
+policy files before the run. Supplying only some of the four expectations
+establishes neither verdict.
+
+A result whose `status` is not `ok` establishes neither verdict, and so does a
+workbook with no result.
 
 ## Exit codes
 
@@ -170,7 +307,7 @@ fail, and a workbook can be left without a result. Give each run its own names. 
 | 54   | a file could not be written, or `--output` or `--result` exists      | `failed`  |
 | 60   | a value does not fit the schema, or a configured limit was exceeded  | `refused` |
 | 61   | malformed rows, schema or policy                                     | `refused` |
-| 62   | a type, value or sheet name the workbook cannot represent            | `refused` |
+| 62   | a type, value or sheet name the workbook cannot represent; no sheet  | `refused` |
 | 64   | command-line usage error; no result file                             |           |
 
 A result file is written for every code except 64, when it can be.
@@ -190,9 +327,13 @@ the workbook writer's scratch files `.tmp` followed by six characters.
 A worksheet holds 1,048,575 data rows and 16,384 columns; a cell holds 32,767
 UTF-16 code units. A line of input may be 1 MiB unless the policy raises it,
 up to 16 MiB. Empty strings are recorded as at most 65,536 row ranges per
-workbook. A schema or policy file may be 16 MiB and nests arrays and objects
-at most three deep. An integer or decimal has at most 38 significant digits. Exceeding a
+workbook. A schema or policy file may be 16 MiB. A schema nests arrays and
+objects at most three deep and a policy at most six; deeper nesting is
+`schema-malformed` or `policy-malformed`. An integer or decimal has at most 38 significant digits. Exceeding a
 limit refuses the run.
+
+No count or length in a result exceeds 9007199254740991 (2^53 - 1). The limits
+above keep every count far below it.
 
 Row data is staged in temporary files in the directory of `--output` while
 the workbook is written.

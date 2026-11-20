@@ -4,8 +4,9 @@
 //!
 //! Values are held as a signed integer coefficient and, for decimals, a
 //! declared scale. Nothing in this module converts through binary floating
-//! point. The textual grammar and bounds implemented here are provisional
-//! and may change before the first release.
+//! point. The textual grammar, its bounds and the order in which its rules
+//! are judged are those of the Tabular Exchange Standard, contract revision
+//! `tabular-exchange/0.1.0`, published in fulmenhq/crucible.
 //!
 //! Grammar:
 //!

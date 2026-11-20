@@ -10,8 +10,9 @@
 //! unchanged, including text that looks like a number. Dates and timestamps
 //! arrive as text and are parsed with the grammar in [`crate::temporal`].
 //!
-//! The set of logical types is provisional and lists only what is
-//! implemented.
+//! The logical types are the closed list of the Tabular Exchange Standard,
+//! contract revision `tabular-exchange/0.1.0`, published in
+//! fulmenhq/crucible.
 
 use core::fmt;
 use std::collections::HashSet;
@@ -619,7 +620,7 @@ mod tests {
         assert_eq!((err.row(), err.column()), (4, Some("sent")));
         assert_eq!(
             err.rule(),
-            RowRule::InvalidTemporal(TemporalError::InvalidOffset)
+            RowRule::InvalidTemporal(TemporalError::OffsetMismatch)
         );
         let err = s
             .check_row(0, &[Scalar::Boolean(true), Scalar::Null, Scalar::Null])
