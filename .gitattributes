@@ -1,2 +1,8 @@
 # Keep sources, documentation and scripts byte-stable across checkouts.
 * text=auto eol=lf
+
+# Files taken from an upstream release stay byte for byte as released: no
+# line-ending conversion on any platform. Their digests are checked by the
+# tests.
+/third_party/crucible/SHA256SUMS -text
+/third_party/crucible/v0.5.1/** -text

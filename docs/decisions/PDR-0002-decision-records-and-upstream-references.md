@@ -62,5 +62,7 @@ match what was built.
 
 - Moving to a newer upstream revision is a reviewed change to links or
   vendored files.
-- Nothing is vendored at present: no conversion validates against an
-  upstream schema.
+- The vectors, fixtures and JSON Schemas of the Tabular Exchange Standard
+  are vendored from the fulmenhq/crucible release `v0.5.1` under
+  `third_party/crucible/` and are used by the tests. No conversion validates
+  against an upstream schema.
