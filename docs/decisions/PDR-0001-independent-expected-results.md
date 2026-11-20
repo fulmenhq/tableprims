@@ -81,9 +81,10 @@ obligations here does not change its status.
   read-back reports them. Missing metadata and a truncated workbook happen
   after a workbook is written, so they are applied to the writer's bytes;
   the read-back reports both, and matching a result to its workbook fails on
-  the truncated one. Rows truncated inside a line are refused by the reader.
-  Rows truncated at a line end are well formed, so only the match with the
-  caller's record of the request shows them. An input that changes between
-  its two reads is refused.
-- The matching in those tests is the tests' own. It is not run against the
-  standard's matching vectors.
+  a truncated or changed one. Rows cut before the closing bracket of the
+  last line are refused by the reader. Rows cut at a line end are well
+  formed, so only the match with the caller's record of the request shows
+  them. An input that changes between its two reads is refused.
+- The read-back and the matching in those tests are the tests' own. The
+  read-back compares numbers with its own decimal reader. The matching is
+  not run against the standard's matching vectors.

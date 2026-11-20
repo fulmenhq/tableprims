@@ -1345,10 +1345,11 @@ fn a_completed_run_matches_its_workbook_and_its_request() {
     assert_eq!(verdicts(None, &workbook, &request), (false, false));
 }
 
-/// A workbook cut short after it was published, as an interrupted copy
-/// leaves it, no longer matches its result.
+/// A workbook changed after it was published no longer matches its result:
+/// cut short, as an interrupted copy leaves it, or one byte changed at the
+/// same length.
 #[test]
-fn a_truncated_workbook_matches_nothing() {
+fn a_changed_or_truncated_workbook_matches_nothing() {
     let case = Case::new("match-truncated", SCHEMA, POLICY, ROWS);
     let request = Request::record(&case, "case-0001");
     assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
@@ -1358,6 +1359,75 @@ fn a_truncated_workbook_matches_nothing() {
             verdicts(Some(&result), &workbook[..keep], &request),
             (false, false),
             "{keep}"
+        );
+    }
+    for at in [0, workbook.len() / 2, workbook.len() - 1] {
+        let mut changed = workbook.clone();
+        changed[at] ^= 0x01;
+        assert_eq!(
+            verdicts(Some(&result), &changed, &request),
+            (false, false),
+            "{at}"
+        );
+    }
+}
+
+/// A result that is not this request's: another run identifier, or other
+/// schema or policy bytes than the caller recorded. The result still agrees
+/// with its workbook; only the match with the request fails.
+#[test]
+fn a_result_for_another_request_fails_only_the_request_match() {
+    let case = Case::new("match-other", SCHEMA, POLICY, ROWS);
+    let request = Request::record(&case, "case-0001");
+    assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+    let (result, workbook) = read_pair(&case);
+    let other = serde_json::json!({"sha256": "0".repeat(64), "bytes": 1});
+    let requests = [
+        Request {
+            run_id: "case-0002",
+            ..Request::record(&case, "")
+        },
+        Request {
+            schema: other.clone(),
+            ..Request::record(&case, "case-0001")
+        },
+        Request {
+            policy: other,
+            ..Request::record(&case, "case-0001")
+        },
+    ];
+    for (index, other) in requests.iter().enumerate() {
+        assert_eq!(
+            verdicts(Some(&result), &workbook, other),
+            (true, false),
+            "{index}"
+        );
+    }
+    assert_eq!(verdicts(Some(&result), &workbook, &request), (true, true));
+}
+
+/// A result whose wire format, contract revision or status is not the one a
+/// consumer reads as complete establishes neither verdict, though its output
+/// digest and length are the workbook's.
+#[test]
+fn a_result_that_is_not_ok_under_this_contract_matches_nothing() {
+    let case = Case::new("match-envelope", SCHEMA, POLICY, ROWS);
+    let request = Request::record(&case, "case-0001");
+    assert_eq!(case.run(&["--run-id", "case-0001"]).status.code(), Some(0));
+    let (result, workbook) = read_pair(&case);
+    let result: Value = serde_json::from_slice(&result).unwrap();
+    for (member, value) in [
+        ("format", "tabular-exchange.result/1"),
+        ("contract", "tabular-exchange/0.2.0"),
+        ("status", "failed"),
+    ] {
+        let mut altered = result.clone();
+        altered[member] = Value::from(value);
+        let bytes = serde_json::to_vec(&altered).unwrap();
+        assert_eq!(
+            verdicts(Some(&bytes), &workbook, &request),
+            (false, false),
+            "{member}"
         );
     }
 }
@@ -1402,4 +1472,25 @@ fn rows_cut_inside_a_line_are_refused() {
             serde_json::json!({"category": "invalid-input", "rule": "malformed-row", "row": 2}),
         );
     }
+}
+
+/// Rows cut inside a character of the last line are refused as invalid
+/// UTF-8 before they are read as JSON.
+#[test]
+fn rows_cut_inside_a_character_are_refused() {
+    let rows = format!("{ROWS}[\"INV-\u{e9}\",\"2\",null,null]\n");
+    let cut = rows.find('\u{e9}').unwrap() + 1;
+    let case = Case::new("cut-utf8", SCHEMA, POLICY, "");
+    fs::write(case.dir.join("rows.ndjson"), &rows.as_bytes()[..cut]).unwrap();
+    assert_eq!(case.run(&[]).status.code(), Some(61));
+    assert_eq!(
+        case.names(),
+        ["policy.json", "result.json", "rows.ndjson", "schema.json"]
+    );
+    let result = case.result();
+    assert_eq!(result["status"], "refused");
+    assert_eq!(
+        result["refusal"],
+        serde_json::json!({"category": "invalid-input", "rule": "invalid-utf8", "row": 3})
+    );
 }

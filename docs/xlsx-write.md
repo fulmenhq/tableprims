@@ -297,7 +297,9 @@ workbook with no result.
 Rows cut short at the end of a line are well formed rows, so a run on them
 completes and its result agrees with its workbook. Only
 `requested-run-completed` shows that the file is not the one the caller
-recorded. Rows cut inside a line are refused with `malformed-row`.
+recorded. Rows cut before the closing bracket of the last line are refused:
+`malformed-row`, or `invalid-utf8` when the cut splits a character. A cut
+that removes only whitespace after the bracket changes nothing that is read.
 
 ## Vectors of the standard
 

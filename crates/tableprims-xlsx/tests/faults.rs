@@ -2,40 +2,43 @@
 //! Fault controls for the read-back check.
 //!
 //! [`read_back`] compares a workbook with what a reader expects of it: the
-//! column labels in order, every data cell, and the records of the hidden
-//! `_tableprims` worksheet. Each test here makes a workbook with one fault
-//! and shows that the check reports it: a dropped row, reordered columns,
-//! missing metadata, a truncated file. A dropped row and reordered columns
-//! are made by the writer itself, from input that differs in that way.
-//! Missing metadata and truncation happen to a workbook after it is
-//! written, so they are applied to the bytes the writer produced.
+//! worksheets, the column labels in order, every data cell by type and exact
+//! value, and every record of the hidden `_tableprims` worksheet. Each test
+//! here makes a workbook with one fault and shows that the check reports it:
+//! a changed digit, a dropped or added row, reordered or added columns, a
+//! changed representation, missing or altered metadata, a truncated file.
+//! Faults in the data are made by the writer itself, from input, schema or
+//! policy that differs in that way. Missing or altered metadata and
+//! truncation happen to a workbook after it is written, so they are applied
+//! to the bytes the writer produced.
 //!
-//! The expectations below are written by hand from the input rows.
+//! The expectations below are written by hand from the input rows. Numbers
+//! are compared with a decimal reader written here, not the library's.
 
 use std::collections::BTreeSet;
 use std::io::{Cursor, Read, Write};
 use std::sync::atomic::AtomicBool;
 
 use calamine::{Data, Reader, SheetVisible, Xlsx};
-use tableprims::binary64::same_decimal_value;
 use tableprims::documents::{parse_policy, parse_schema};
 use tableprims_xlsx::Plan;
 
-/// One column as a reader expects it: identifier, label and logical type.
-type Column = (&'static str, &'static str, &'static str);
+/// One column as a reader expects it: identifier, label, logical type and
+/// representation.
+type Column = (&'static str, &'static str, &'static str, &'static str);
 
 const COLUMNS: [Column; 4] = [
-    ("invoice", "Invoice", "string"),
-    ("qty", "Qty", "integer"),
-    ("amount", "Amount", "decimal"),
-    ("paid", "Paid", "boolean"),
+    ("invoice", "Invoice", "string", "text"),
+    ("qty", "Qty", "integer", "native"),
+    ("amount", "Amount", "decimal", "native"),
+    ("paid", "Paid", "boolean", "native"),
 ];
 
-/// The schema for [`COLUMNS`] in the order given.
+/// The schema for `columns` in the order given.
 fn schema(columns: &[Column]) -> String {
     let declared: Vec<String> = columns
         .iter()
-        .map(|(id, label, kind)| {
+        .map(|(id, label, kind, _)| {
             let extra = if *kind == "decimal" {
                 r#","precision":12,"scale":2"#
             } else {
@@ -50,7 +53,11 @@ fn schema(columns: &[Column]) -> String {
     )
 }
 
-const POLICY: &str = r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","extensions":{"tableprims":{"sheet":"Data"}}}"#;
+fn policy(exact: &str) -> String {
+    format!(
+        r#"{{"format":"tabular-exchange.policy/0","exact_numbers":"{exact}","extensions":{{"tableprims":{{"sheet":"Data"}}}}}}"#
+    )
+}
 
 /// The input rows as JSON element tokens, in [`COLUMNS`] order. Each row is
 /// written as one line `[a,b,c,d]`.
@@ -60,19 +67,28 @@ const LINES: [[&str; 4]; 3] = [
     [r#""INV-3""#, r#""-2""#, "null", "false"],
 ];
 
-/// What a reader expects of each data cell, in [`COLUMNS`] order. `None` is
-/// a null. Numbers are decimal text, compared by value.
-const EXPECTED: [[Option<&str>; 4]; 3] = [
-    [Some("INV-1"), Some("3"), Some("12.34"), Some("true")],
-    [Some(""), Some("7"), Some("0.50"), None],
-    [Some("INV-3"), Some("-2"), None, Some("false")],
-];
+/// One expected row: a reader's value for each cell, in column order.
+/// `None` is a null. Numbers are decimal text, compared by value.
+type Row = Vec<Option<&'static str>>;
 
-fn write(schema: &str, rows: &str) -> Vec<u8> {
+/// What a reader expects of each data cell, in [`COLUMNS`] order.
+fn expected_rows() -> Vec<Row> {
+    vec![
+        vec![Some("INV-1"), Some("3"), Some("12.34"), Some("true")],
+        vec![Some(""), Some("7"), Some("0.50"), None],
+        vec![Some("INV-3"), Some("-2"), None, Some("false")],
+    ]
+}
+
+fn all_lines() -> Vec<Vec<&'static str>> {
+    LINES.iter().map(|line| line.to_vec()).collect()
+}
+
+fn write_with(schema: &str, policy: &str, rows: &str) -> Vec<u8> {
     let never = AtomicBool::new(false);
     let plan = Plan::new(
         &parse_schema(schema).unwrap(),
-        &parse_policy(POLICY).unwrap(),
+        &parse_policy(policy).unwrap(),
     )
     .unwrap();
     let scan = plan.scan(rows.as_bytes(), &never).unwrap();
@@ -82,10 +98,54 @@ fn write(schema: &str, rows: &str) -> Vec<u8> {
     bytes
 }
 
-fn lines(rows: &[[&str; 4]]) -> String {
+fn write(schema: &str, rows: &str) -> Vec<u8> {
+    write_with(schema, &policy("require-exact"), rows)
+}
+
+fn lines(rows: &[Vec<&str>]) -> String {
     rows.iter()
         .map(|fields| format!("[{}]\n", fields.join(",")))
         .collect()
+}
+
+fn as_written() -> Vec<u8> {
+    write(&schema(&COLUMNS), &lines(&all_lines()))
+}
+
+/// A decimal number as sign, significant digits and power of ten, with no
+/// leading or trailing zero digit; zero is `(false, "", 0)`. Accepts an
+/// optional minus sign, digits, an optional fraction and an optional
+/// exponent, which is what a worksheet's numeric token can hold.
+fn decimal(text: &str) -> Option<(bool, String, i64)> {
+    let (negative, text) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (mantissa, exponent) = match text.find(['e', 'E']) {
+        Some(at) => (&text[..at], text[at + 1..].parse::<i64>().ok()?),
+        None => (text, 0),
+    };
+    let (whole, fraction) = match mantissa.split_once('.') {
+        Some((_, "")) => return None,
+        Some(parts) => parts,
+        None => (mantissa, ""),
+    };
+    if whole.is_empty() || !(whole.chars().chain(fraction.chars())).all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let digits = format!("{whole}{fraction}");
+    let mut power = exponent - i64::try_from(fraction.len()).ok()?;
+    let trimmed = digits.trim_start_matches('0');
+    let significant = trimmed.trim_end_matches('0');
+    power += i64::try_from(trimmed.len() - significant.len()).ok()?;
+    if significant.is_empty() {
+        return Some((false, String::new(), 0));
+    }
+    Some((negative, significant.to_owned(), power))
+}
+
+fn same_value(token: &str, expected: &str) -> bool {
+    decimal(token).is_some() && decimal(token) == decimal(expected)
 }
 
 /// A data cell as stored.
@@ -134,26 +194,95 @@ fn text(cell: Option<&Data>) -> String {
     }
 }
 
+/// The `column` record a reader expects for column `index`.
+fn column_record(index: usize, (id, _, kind, representation): &Column) -> Vec<String> {
+    let (precision, scale) = if *kind == "decimal" {
+        ("12", "2")
+    } else {
+        ("", "")
+    };
+    let fields = [
+        "column",
+        &index.to_string(),
+        id,
+        kind,
+        precision,
+        scale,
+        "true",
+        "",
+        representation,
+    ];
+    fields.iter().map(|field| (*field).to_owned()).collect()
+}
+
+/// The (row, column) cells that the `empty` records from `records[first..]`
+/// list, and the index of the first record after them.
+fn empty_cells(
+    records: &[Vec<String>],
+    first: usize,
+    width: usize,
+    problems: &mut Vec<String>,
+) -> (BTreeSet<(usize, usize)>, usize) {
+    let mut cells = BTreeSet::new();
+    let mut at = first;
+    while records
+        .get(at)
+        .is_some_and(|r| r.first().is_some_and(|kind| kind == "empty"))
+    {
+        let record = &records[at];
+        let column = record.get(1).and_then(|c| c.parse::<usize>().ok());
+        let ranges: Option<Vec<(usize, usize)>> = record
+            .get(2..)
+            .filter(|fields| !fields.is_empty())
+            .map(|fields| fields.join(","))
+            .and_then(|joined| {
+                joined
+                    .split(',')
+                    .map(|range| {
+                        let (a, b) = range.split_once('-')?;
+                        Some((a.parse().ok()?, b.parse().ok()?))
+                    })
+                    .collect()
+            });
+        match (column, ranges) {
+            (Some(column), Some(ranges))
+                if column < width && ranges.iter().all(|(a, b)| a <= b) =>
+            {
+                for (a, b) in ranges {
+                    cells.extend((a..=b).map(|row| (row, column)));
+                }
+            }
+            _ => problems.push(format!("record {at}: malformed empty record {record:?}")),
+        }
+        at += 1;
+    }
+    (cells, at)
+}
+
 /// Compares a workbook with what a reader expects of it and lists every
 /// difference. An empty list means the workbook holds `expected` under
 /// `columns`, in that order, with metadata that agrees.
-fn read_back(bytes: &[u8], columns: &[Column], expected: &[[Option<&str>; 4]]) -> Vec<String> {
+#[allow(clippy::too_many_lines)]
+fn read_back(bytes: &[u8], columns: &[Column], expected: &[Row]) -> Vec<String> {
     let mut problems = Vec::new();
     let mut workbook: Xlsx<_> = match Xlsx::new(Cursor::new(bytes)) {
         Ok(workbook) => workbook,
         Err(error) => return vec![format!("unreadable: {error}")],
     };
-    let sheets = workbook.sheets_metadata().to_vec();
-    let names: Vec<_> = sheets.iter().map(|s| s.name.as_str()).collect();
-    if names.first() != Some(&"Data") || sheets[0].visible != SheetVisible::Visible {
-        problems.push(format!("worksheets: {names:?}"));
+    let sheets: Vec<_> = workbook
+        .sheets_metadata()
+        .iter()
+        .map(|s| (s.name.clone(), s.visible))
+        .collect();
+    if !sheets.iter().any(|(name, _)| name == "_tableprims") {
+        return vec!["no _tableprims worksheet".to_owned()];
     }
-    match sheets.iter().find(|s| s.name == "_tableprims") {
-        None => return [problems, vec!["no _tableprims worksheet".to_owned()]].concat(),
-        Some(meta) if meta.visible != SheetVisible::Hidden => {
-            problems.push("_tableprims is not hidden".to_owned());
-        }
-        Some(_) => {}
+    let want = [
+        ("Data".to_owned(), SheetVisible::Visible),
+        ("_tableprims".to_owned(), SheetVisible::Hidden),
+    ];
+    if sheets != want {
+        problems.push(format!("worksheets: {sheets:?}"));
     }
 
     // The records of the hidden worksheet.
@@ -172,52 +301,27 @@ fn read_back(bytes: &[u8], columns: &[Column], expected: &[[Option<&str>; 4]]) -
         })
         .collect();
     let (rows, width) = (expected.len().to_string(), columns.len().to_string());
-    let want: [Vec<&str>; 2] = [
+    let mut want: Vec<Vec<String>> = [
         vec!["format", "1", "tableprims", "xlsx-write/r1"],
         vec!["sheet", "Data", "1", &rows, &width],
-    ];
+    ]
+    .iter()
+    .map(|record| record.iter().map(|field| (*field).to_owned()).collect())
+    .collect();
+    want.extend(columns.iter().enumerate().map(|(i, c)| column_record(i, c)));
     for (index, want) in want.iter().enumerate() {
-        if records
-            .get(index)
-            .map(|r| r.iter().map(String::as_str).collect::<Vec<_>>())
-            .as_ref()
-            != Some(want)
-        {
-            problems.push(format!(
-                "record {index}: {:?}, expected {want:?}",
-                records.get(index)
-            ));
+        let got = records.get(index);
+        if got != Some(want) {
+            let what = if index < 2 { "record" } else { "column record" };
+            problems.push(format!("{what} {index}: {got:?}, expected {want:?}"));
         }
     }
-    for (index, (id, _, kind)) in columns.iter().enumerate() {
-        let record = records.get(2 + index).cloned().unwrap_or_default();
-        let at = |field: usize| record.get(field).map_or("", String::as_str);
-        if (at(0), at(1), at(2), at(3)) != ("column", index.to_string().as_str(), *id, *kind) {
-            problems.push(format!(
-                "column record {index}: {record:?}, expected {id} {kind}"
-            ));
-        }
-    }
-    let mut empty = BTreeSet::new();
-    let mut seen = 2 + columns.len();
-    while records
-        .get(seen)
-        .is_some_and(|r| r.first().is_some_and(|kind| kind == "empty"))
-    {
-        let column: usize = records[seen][1].parse().unwrap();
-        for range in records[seen][2..].join(",").split(',') {
-            let (first, last) = range.split_once('-').unwrap();
-            for row in first.parse::<usize>().unwrap()..=last.parse().unwrap() {
-                empty.insert((row, column));
-            }
-        }
-        seen += 1;
-    }
-    let end = vec!["end".to_owned(), seen.to_string()];
-    if records.get(seen) != Some(&end) || records.len() != seen + 1 {
+    let (empty, end_at) = empty_cells(&records, want.len(), columns.len(), &mut problems);
+    let end = vec!["end".to_owned(), end_at.to_string()];
+    if records.get(end_at) != Some(&end) || records.len() != end_at + 1 {
         problems.push(format!(
-            "records after {seen}: {:?}, expected {end:?}",
-            &records[seen.min(records.len())..]
+            "end record: {:?}, expected {end:?} and nothing after",
+            &records[end_at.min(records.len())..]
         ));
     }
 
@@ -229,17 +333,23 @@ fn read_back(bytes: &[u8], columns: &[Column], expected: &[[Option<&str>; 4]]) -
     let Some(xml) = read_member(bytes, "xl/worksheets/sheet1.xml") else {
         return [problems, vec!["no worksheet XML for Data".to_owned()]].concat();
     };
-    for (index, (_, label, _)) in columns.iter().enumerate() {
+    for (index, (_, label, _, _)) in columns.iter().enumerate() {
         let got = text(data.get_value((0, u32::try_from(index).unwrap())));
         if got != *label {
             problems.push(format!("label {index}: {got:?}, expected {label:?}"));
         }
     }
-    if let Some((last, _)) = data.end() {
-        if usize::try_from(last).unwrap() > expected.len() {
+    if let Some((last_row, last_column)) = data.end() {
+        if usize::try_from(last_row).unwrap() > expected.len() {
             problems.push(format!(
-                "rows beyond {}: last row is {last}",
+                "rows beyond {}: last is {last_row}",
                 expected.len()
+            ));
+        }
+        if usize::try_from(last_column).unwrap() >= columns.len() {
+            problems.push(format!(
+                "columns beyond {}: last is {last_column}",
+                columns.len()
             ));
         }
     }
@@ -258,19 +368,22 @@ fn read_back(bytes: &[u8], columns: &[Column], expected: &[[Option<&str>; 4]]) -
                     .map_or_else(|| Cell::Other("no numeric token".to_owned()), Cell::Number),
                 Some(other) => Cell::Other(format!("{other:?}")),
             };
+            let listed = empty.contains(&(row, column));
             let agrees = match (&got, want) {
-                (Cell::Blank, None) => !empty.contains(&(row, column)),
-                (Cell::Blank, Some("")) => empty.contains(&(row, column)),
+                (Cell::Blank, None) => !listed,
+                (Cell::Blank, Some("")) => listed,
+                (_, _) if listed => false,
                 (Cell::Text(text), Some(want)) => kind == "string" && text == want,
                 (Cell::Bool(value), Some(want)) => kind == "boolean" && value.to_string() == *want,
                 (Cell::Number(token), Some(want)) => {
-                    matches!(kind, "integer" | "decimal") && same_decimal_value(token, want)
+                    matches!(kind, "integer" | "decimal") && same_value(token, want)
                 }
                 _ => false,
             };
             if !agrees {
+                let note = if listed { " (listed empty)" } else { "" };
                 problems.push(format!(
-                    "row {row} column {column}: {got:?}, expected {want:?}"
+                    "row {row} column {column}: {got:?}{note}, expected {want:?}"
                 ));
             }
         }
@@ -278,23 +391,94 @@ fn read_back(bytes: &[u8], columns: &[Column], expected: &[[Option<&str>; 4]]) -
     problems
 }
 
-fn expected_rows() -> Vec<[Option<&'static str>; 4]> {
-    EXPECTED.to_vec()
+/// Requires each prefix in `kinds` to start at least one of `problems`.
+fn assert_reports(problems: &[String], kinds: &[&str], what: &str) {
+    for kind in kinds {
+        assert!(
+            problems.iter().any(|p| p.starts_with(kind)),
+            "{what}: no {kind:?} in {problems:?}"
+        );
+    }
 }
 
-fn all_lines() -> Vec<[&'static str; 4]> {
-    LINES.to_vec()
+/// The workbook with `edit` applied to the text of one member. Every other
+/// member is copied unchanged.
+fn rewrite(bytes: &[u8], member: &str, edit: impl FnOnce(&mut String)) -> Vec<u8> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let mut edit = Some(edit);
+    for index in 0..archive.len() {
+        let name = archive
+            .by_index_raw(index)
+            .unwrap()
+            .name()
+            .unwrap()
+            .into_owned();
+        if name == member {
+            let mut xml = String::new();
+            archive
+                .by_index(index)
+                .unwrap()
+                .read_to_string(&mut xml)
+                .unwrap();
+            let before = xml.clone();
+            (edit.take().unwrap())(&mut xml);
+            assert_ne!(xml, before, "the edit changed nothing");
+            out.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            out.write_all(xml.as_bytes()).unwrap();
+        } else {
+            out.raw_copy_file(archive.by_index_raw(index).unwrap())
+                .unwrap();
+        }
+    }
+    assert!(edit.is_none(), "no member {member}");
+    out.finish().unwrap().into_inner()
+}
+
+/// Removes the element that starts with `open` and ends with the first
+/// `close` after it.
+fn remove_element(xml: &mut String, open: &str, close: &str) {
+    let start = xml.find(open).unwrap();
+    let end = start + xml[start..].find(close).unwrap() + close.len();
+    xml.replace_range(start..end, "");
 }
 
 /// Control: the workbook written from the input agrees, so a reported
 /// difference below comes from the fault.
 #[test]
 fn the_workbook_as_written_reads_back() {
-    let bytes = write(&schema(&COLUMNS), &lines(&all_lines()));
     assert_eq!(
-        read_back(&bytes, &COLUMNS, &expected_rows()),
+        read_back(&as_written(), &COLUMNS, &expected_rows()),
         Vec::<String>::new()
     );
+}
+
+/// Control for the decimal reader used by the read-back.
+#[test]
+fn the_decimal_reader_compares_values_not_text() {
+    for (a, b) in [
+        ("12.34", "12.340"),
+        ("0.50", "0.5"),
+        ("-2", "-2.00"),
+        ("0", "-0.000"),
+        ("1.5E2", "150"),
+        ("1e-3", "0.001"),
+        ("007", "7"),
+    ] {
+        assert!(same_value(a, b), "{a} {b}");
+    }
+    for (a, b) in [
+        ("12.34", "12.35"),
+        ("12.34", "1.234"),
+        ("-2", "2"),
+        ("1e3", "100"),
+        ("", "0"),
+        ("1.", "1"),
+        ("x", "x"),
+    ] {
+        assert!(!same_value(a, b), "{a} {b}");
+    }
 }
 
 #[test]
@@ -315,16 +499,23 @@ fn a_dropped_row_is_reported() {
         input.remove(dropped);
         let bytes = write(&schema(&COLUMNS), &lines(&input));
         let problems = read_back(&bytes, &COLUMNS, &expected_rows());
-        assert!(
-            problems.iter().any(|p| p.starts_with("record 1:")),
-            "row {dropped}: {problems:?}"
-        );
-        // The data cells alone also show it.
-        assert!(
-            problems.iter().any(|p| p.starts_with("row ")),
-            "row {dropped}: {problems:?}"
-        );
+        // The sheet record's count, and the data cells on their own.
+        assert_reports(&problems, &["record 1:", "row "], &format!("row {dropped}"));
     }
+}
+
+#[test]
+fn an_added_row_is_reported() {
+    let mut input = all_lines();
+    input.push(LINES[0].to_vec());
+    let bytes = write(&schema(&COLUMNS), &lines(&input));
+    assert_eq!(
+        read_back(&bytes, &COLUMNS, &expected_rows()),
+        [
+            "record 1: Some([\"sheet\", \"Data\", \"1\", \"4\", \"4\"]), expected [\"sheet\", \"Data\", \"1\", \"3\", \"4\"]",
+            "rows beyond 3: last is 4"
+        ]
+    );
 }
 
 #[test]
@@ -344,53 +535,61 @@ fn reordered_columns_are_reported() {
         }
         assert_eq!(read_back(&bytes, &columns, &swapped), Vec::<String>::new());
         let problems = read_back(&bytes, &COLUMNS, &expected_rows());
-        for kind in ["label ", "column record ", "row "] {
-            assert!(
-                problems.iter().any(|p| p.starts_with(kind)),
-                "{a}<->{b} {kind}: {problems:?}"
-            );
-        }
+        assert_reports(
+            &problems,
+            &["label ", "column record ", "row "],
+            &format!("{a}<->{b}"),
+        );
     }
 }
 
-/// The workbook with the `_tableprims` worksheet no longer listed, as a
-/// tool that keeps only visible worksheets would leave it. Every other
-/// member is copied unchanged.
-fn without_metadata(bytes: &[u8]) -> Vec<u8> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
-    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    for index in 0..archive.len() {
-        let name = archive
-            .by_index_raw(index)
-            .unwrap()
-            .name()
-            .unwrap()
-            .into_owned();
-        if name == "xl/workbook.xml" {
-            let mut xml = String::new();
-            archive
-                .by_index(index)
-                .unwrap()
-                .read_to_string(&mut xml)
-                .unwrap();
-            let start = xml.find("<sheet name=\"_tableprims\"").unwrap();
-            let end = start + xml[start..].find("/>").unwrap() + 2;
-            xml.replace_range(start..end, "");
-            out.start_file(name, zip::write::SimpleFileOptions::default())
-                .unwrap();
-            out.write_all(xml.as_bytes()).unwrap();
-        } else {
-            out.raw_copy_file(archive.by_index_raw(index).unwrap())
-                .unwrap();
-        }
-    }
-    out.finish().unwrap().into_inner()
+#[test]
+fn an_added_column_is_reported() {
+    let mut columns = COLUMNS.to_vec();
+    columns.push(("note", "Note", "string", "text"));
+    let input: Vec<Vec<&str>> = all_lines()
+        .into_iter()
+        .map(|mut fields| {
+            fields.push(r#""n""#);
+            fields
+        })
+        .collect();
+    let bytes = write(&schema(&columns), &lines(&input));
+    let problems = read_back(&bytes, &COLUMNS, &expected_rows());
+    assert_reports(
+        &problems,
+        &["record 1:", "end record:", "columns beyond 4"],
+        "added column",
+    );
+}
+
+/// The policy `text-always` stores the integer and decimal columns as text.
+#[test]
+fn a_changed_representation_is_reported() {
+    let bytes = write_with(
+        &schema(&COLUMNS),
+        &policy("text-always"),
+        &lines(&all_lines()),
+    );
+    let problems = read_back(&bytes, &COLUMNS, &expected_rows());
+    assert_reports(
+        &problems,
+        &[
+            "column record 3:",
+            "column record 4:",
+            "row 0 column 1: Text",
+        ],
+        "text-always",
+    );
 }
 
 #[test]
 fn missing_metadata_is_reported() {
-    let bytes = write(&schema(&COLUMNS), &lines(&all_lines()));
-    let stripped = without_metadata(&bytes);
+    let bytes = as_written();
+    // A tool that keeps only visible worksheets drops `_tableprims`.
+    let stripped = rewrite(&bytes, "xl/workbook.xml", |xml| {
+        remove_element(xml, "<sheet name=\"_tableprims\"", "/>");
+    });
     // The data worksheet still reads, and on its own looks complete.
     let mut workbook: Xlsx<_> = Xlsx::new(Cursor::new(&stripped[..])).unwrap();
     assert_eq!(workbook.sheet_names(), ["Data"]);
@@ -401,9 +600,68 @@ fn missing_metadata_is_reported() {
     );
 }
 
+/// Without its `empty` record, the empty string in row 1 would read as a
+/// null.
+#[test]
+fn a_missing_empty_record_is_reported() {
+    let bytes = as_written();
+    let sheet = read_member(&bytes, "xl/worksheets/sheet2.xml").unwrap();
+    let at = sheet.find("<t>empty</t>").unwrap();
+    let start = sheet[..at].rfind("<row ").unwrap();
+    let open = sheet[start..].split('>').next().unwrap().to_owned();
+    let stripped = rewrite(&bytes, "xl/worksheets/sheet2.xml", |xml| {
+        remove_element(xml, &open, "</row>");
+    });
+    let problems = read_back(&stripped, &COLUMNS, &expected_rows());
+    assert_reports(
+        &problems,
+        &["end record:", "row 1 column 0: Blank"],
+        "empty record",
+    );
+}
+
+/// An `empty` record that names a cell holding text.
+#[test]
+fn an_empty_record_for_a_written_cell_is_reported() {
+    let bytes = as_written();
+    let altered = rewrite(&bytes, "xl/worksheets/sheet2.xml", |xml| {
+        *xml = xml.replacen("<t>1-1</t>", "<t>0-1</t>", 1);
+    });
+    assert_eq!(
+        read_back(&altered, &COLUMNS, &expected_rows()),
+        ["row 0 column 0: Text(\"INV-1\") (listed empty), expected Some(\"INV-1\")"]
+    );
+    for bad in ["1-0", "x", "1-"] {
+        let altered = rewrite(&bytes, "xl/worksheets/sheet2.xml", |xml| {
+            *xml = xml.replacen("<t>1-1</t>", &format!("<t>{bad}</t>"), 1);
+        });
+        let problems = read_back(&altered, &COLUMNS, &expected_rows());
+        assert_reports(&problems, &["record 6: malformed empty record"], bad);
+    }
+    // A column index beyond the last column.
+    let altered = rewrite(&bytes, "xl/worksheets/sheet2.xml", |xml| {
+        let kind = xml.find("<t>empty</t>").unwrap();
+        let index = kind + xml[kind..].find("<t>0</t>").unwrap();
+        xml.replace_range(index..index + 8, "<t>4</t>");
+    });
+    let problems = read_back(&altered, &COLUMNS, &expected_rows());
+    assert_reports(&problems, &["record 6: malformed empty record"], "column 4");
+}
+
+#[test]
+fn visible_metadata_is_reported() {
+    let altered = rewrite(&as_written(), "xl/workbook.xml", |xml| {
+        *xml = xml.replacen(" state=\"hidden\"", "", 1);
+    });
+    assert_eq!(
+        read_back(&altered, &COLUMNS, &expected_rows()),
+        ["worksheets: [(\"Data\", Visible), (\"_tableprims\", Visible)]"]
+    );
+}
+
 #[test]
 fn a_truncated_workbook_is_reported() {
-    let bytes = write(&schema(&COLUMNS), &lines(&all_lines()));
+    let bytes = as_written();
     for keep in [0, 1, bytes.len() / 2, bytes.len() - 22, bytes.len() - 1] {
         let problems = read_back(&bytes[..keep], &COLUMNS, &expected_rows());
         assert!(
