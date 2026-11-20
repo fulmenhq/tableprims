@@ -671,3 +671,30 @@ fn a_truncated_workbook_is_reported() {
         );
     }
 }
+
+/// A native decimal whose scale is above the largest number format is
+/// written without a format. Its stored token reads back as the source
+/// value; a changed digit on that path is reported here.
+#[test]
+fn decimals_above_the_formatted_scale_read_back() {
+    let zeros = |count: usize| "0".repeat(count);
+    for (scale, value) in [
+        (30, format!("0.{}1", zeros(29))),
+        (31, format!("0.{}1", zeros(30))),
+        (31, format!("1.2345{}", zeros(27))),
+        (38, format!("-0.{}7", zeros(37))),
+    ] {
+        let schema = format!(
+            r#"{{"format":"tabular-exchange.schema/0","columns":[{{"id":"d","label":"D","type":"decimal","precision":38,"scale":{scale},"nullable":false}}]}}"#
+        );
+        let bytes = write(&schema, &format!("[\"{value}\"]\n"));
+        let sheet = read_member(&bytes, "xl/worksheets/sheet1.xml").unwrap();
+        let token = numeric_token(&sheet, "A2").expect("a numeric cell");
+        assert!(
+            same_value(&token, &value),
+            "scale {scale}: {token} is not {value}"
+        );
+        let changed = value.replacen(|c: char| c.is_ascii_digit() && c != '0', "9", 1);
+        assert!(!same_value(&token, &changed), "scale {scale}: {changed}");
+    }
+}

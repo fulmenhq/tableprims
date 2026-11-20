@@ -87,7 +87,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   independent read-back of the workbook; a changed or truncated workbook,
   rows cut at a line end and a result for another request, each failing the
   match of a result; rows cut before the closing bracket of the last line
-  refused as malformed or invalid UTF-8.
+  refused as malformed or invalid UTF-8. Native decimals above scale 30,
+  written without a number format, are read back exactly.
 
 ### Changed
 
