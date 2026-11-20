@@ -1078,12 +1078,13 @@ fn a_killed_run_leaves_no_workbook_and_no_result() {
     }
 }
 
-/// Sends `signal` (`INT` or `TERM`) to a running child.
+/// Sends `signal` (`INT` or `TERM`) to a running child, through the
+/// shell's built-in `kill`: not every system has a `kill` program.
 #[cfg(unix)]
 fn send(child: &std::process::Child, signal: &str) {
-    let status = Command::new("kill")
-        .arg(format!("-{signal}"))
-        .arg(child.id().to_string())
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(format!("kill -{signal} {}", child.id()))
         .status()
         .unwrap();
     assert!(status.success(), "kill -{signal}");
@@ -1112,7 +1113,9 @@ fn ending(output: &Output) -> (Option<i32>, Option<i32>) {
     (output.status.code(), output.status.signal())
 }
 
+#[cfg(unix)]
 const SIGINT: i32 = 2;
+#[cfg(unix)]
 const SIGTERM: i32 = 15;
 
 /// Checks a run stopped by `signal`: it published a `cancelled` result,
