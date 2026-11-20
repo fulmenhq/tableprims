@@ -686,7 +686,14 @@ pub(crate) fn run(
         .ok()
         .filter(std::fs::Metadata::is_file)
         .map(|metadata| metadata.len());
-    let telemetry = Telemetry::start(runtime_dir, &run_id, total, started);
+    let avoid = vec![
+        files.input.clone(),
+        files.schema.clone(),
+        files.policy.clone(),
+        files.output.clone(),
+        files.result.clone(),
+    ];
+    let telemetry = Telemetry::start(runtime_dir, &run_id, total, started, avoid);
     let end = match links(&files.output, &token, "workbook") {
         Ok(false) => Err(Failure::new(
             Category::IoFailure,

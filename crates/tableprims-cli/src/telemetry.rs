@@ -155,6 +155,9 @@ struct Setup {
     run_id: String,
     total: Option<u64>,
     started_at: String,
+    /// The paths the conversion reads or writes; telemetry never creates
+    /// anything that could be one of them.
+    avoid: Vec<PathBuf>,
 }
 
 impl Telemetry {
@@ -170,11 +173,13 @@ impl Telemetry {
     /// Starts telemetry for `run_id` under `runtime_dir`. `total` is the
     /// length of the rows file when it is a regular file.
     /// `started_at` is when the program started, as close as it can tell.
+    /// `avoid` lists the paths the conversion reads or writes.
     pub(crate) fn start(
         runtime_dir: Option<&Path>,
         run_id: &str,
         total: Option<u64>,
         started_at: SystemTime,
+        avoid: Vec<PathBuf>,
     ) -> Self {
         let Some(runtime_dir) = runtime_dir else {
             return Self::off();
@@ -187,6 +192,7 @@ impl Telemetry {
             run_id: run_id.to_owned(),
             total,
             started_at: timestamp(started_at),
+            avoid,
         };
         let progress = Arc::new(Progress::default());
         let (sender, receiver) = mpsc::channel();
@@ -376,13 +382,24 @@ fn card_for(setup: &Setup, events: &Path) -> Option<Vec<u8>> {
 fn open(setup: &Setup) -> Option<(Stream, PathBuf)> {
     let proc_dir = setup.runtime_dir.join("proc");
     let events_dir = setup.runtime_dir.join("events");
+    let events = events_dir.join(format!("{}.ndjson", setup.run_id));
+    let card_dir = proc_dir.join(&setup.run_id);
+    let card = card_dir.join("card.json");
+    let staging = card_dir.join(".card.json.tmp");
+    // The conversion's paths come first: telemetry is off if anything it
+    // would create could be one of them, or could contain one.
+    if collides(
+        &setup.avoid,
+        &[&setup.runtime_dir, &proc_dir, &events_dir, &card_dir],
+        &[&events, &card, &staging],
+    ) {
+        return None;
+    }
+    // The serialized card is checked before anything is created.
+    let bytes = card_for(setup, &events)?;
     for directory in [&setup.runtime_dir, &proc_dir, &events_dir] {
         create_dir(directory, true)?;
     }
-    let events = events_dir.join(format!("{}.ndjson", setup.run_id));
-    // The serialized card is checked before anything of this run exists.
-    let bytes = card_for(setup, &events)?;
-    let card_dir = proc_dir.join(&setup.run_id);
     create_dir(&card_dir, false)?;
     let Some(file) = create_file(&events) else {
         let _ = fs::remove_dir(&card_dir);
@@ -400,8 +417,6 @@ fn open(setup: &Setup) -> Option<(Stream, PathBuf)> {
         data.insert("source_bytes".into(), json!(total));
     }
     stream.emit("started", "INFO", Value::Object(data), true);
-    let card = card_dir.join("card.json");
-    let staging = card_dir.join(".card.json.tmp");
     let published = stream.file.is_some()
         && create_file(&staging).is_some_and(|mut staged| staged.write_all(&bytes).is_ok())
         && fs::rename(&staging, &card).is_ok();
@@ -414,6 +429,65 @@ fn open(setup: &Setup) -> Option<(Stream, PathBuf)> {
         return None;
     }
     Some((stream, card))
+}
+
+/// A path as lowercase components, for comparison: the longest part that
+/// exists resolved through symbolic links, the rest as written. Lowercase
+/// so that names a case-insensitive file system would treat as one compare
+/// equal; that can only find more collisions, never fewer.
+fn comparison_key(path: &Path) -> Option<Vec<String>> {
+    let path = std::path::absolute(path).ok()?;
+    let mut existing = PathBuf::new();
+    let mut rest = Vec::new();
+    for component in path.components() {
+        if rest.is_empty() && existing.join(component).exists() {
+            existing.push(component);
+        } else {
+            rest.push(component);
+        }
+    }
+    let base = fs::canonicalize(&existing).unwrap_or(existing);
+    let mut key: Vec<String> = base
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        .collect();
+    for component in rest {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                key.pop();
+            }
+            other => key.push(other.as_os_str().to_string_lossy().to_lowercase()),
+        }
+    }
+    Some(key)
+}
+
+/// Whether telemetry's planned entries could collide with the conversion:
+/// a planned directory or file that could be one of `avoid`, or a directory
+/// telemetry would create that would contain one of them. A path that
+/// cannot be compared counts as a collision.
+fn collides(avoid: &[PathBuf], directories: &[&PathBuf], files: &[&PathBuf]) -> bool {
+    let Some(avoid) = avoid
+        .iter()
+        .map(|path| comparison_key(path))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return true;
+    };
+    for planned in directories.iter().chain(files) {
+        let Some(key) = comparison_key(planned) else {
+            return true;
+        };
+        if avoid.contains(&key) {
+            return true;
+        }
+    }
+    directories.iter().any(|directory| {
+        !directory.exists()
+            && comparison_key(directory)
+                .is_none_or(|key| avoid.iter().any(|path| path.starts_with(&key)))
+    })
 }
 
 /// Creates a directory owner-only. An existing one is accepted only where
@@ -511,26 +585,54 @@ pub(crate) fn check_card(bytes: &[u8]) -> bool {
         && telemetry.get("format").and_then(Value::as_str) == Some("ndjson")
 }
 
-/// `YYYY-MM-DDThh:mm:ss.sssZ`, the form this program writes.
+/// `YYYY-MM-DDThh:mm:ss.sssZ`, the form this program writes, naming a real
+/// date and time: a month of 1 to 12, a day that month has (leap years by
+/// the Gregorian rule), hours 0 to 23, minutes and seconds 0 to 59.
 fn is_utc_timestamp(text: &str) -> bool {
     let bytes = text.as_bytes();
-    let digits =
-        |range: std::ops::Range<usize>| range.into_iter().all(|i| bytes[i].is_ascii_digit());
-    bytes.len() == 24
-        && digits(0..4)
-        && bytes[4] == b'-'
-        && digits(5..7)
-        && bytes[7] == b'-'
-        && digits(8..10)
-        && bytes[10] == b'T'
-        && digits(11..13)
-        && bytes[13] == b':'
-        && digits(14..16)
-        && bytes[16] == b':'
-        && digits(17..19)
-        && bytes[19] == b'.'
-        && digits(20..23)
-        && bytes[23] == b'Z'
+    if bytes.len() != 24 || !text.is_ascii() {
+        return false;
+    }
+    let number = |range: std::ops::Range<usize>| -> Option<u32> {
+        let field = &text[range];
+        field
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| field.parse().ok())
+            .flatten()
+    };
+    let separators = [
+        (4, b'-'),
+        (7, b'-'),
+        (10, b'T'),
+        (13, b':'),
+        (16, b':'),
+        (19, b'.'),
+        (23, b'Z'),
+    ];
+    if !separators.iter().all(|&(at, byte)| bytes[at] == byte) {
+        return false;
+    }
+    let (Some(year), Some(month), Some(day), Some(hour), Some(minute), Some(second), Some(_)) = (
+        number(0..4),
+        number(5..7),
+        number(8..10),
+        number(11..13),
+        number(14..16),
+        number(17..19),
+        number(20..23),
+    ) else {
+        return false;
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days).contains(&day) && hour < 24 && minute < 60 && second < 60
 }
 
 /// A UTC time as `YYYY-MM-DDThh:mm:ss.sssZ`.
@@ -620,7 +722,43 @@ mod tests {
             run_id: "case-0001".into(),
             total: Some(10),
             started_at: timestamp(SystemTime::now()),
+            avoid: Vec::new(),
         }
+    }
+
+    #[test]
+    fn telemetry_entries_never_take_a_conversion_path() {
+        let root = std::env::temp_dir().join(format!("tblp-collide-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("events")).unwrap();
+        let events = root.join("events/demo.ndjson");
+        let dirs = [
+            root.clone(),
+            root.join("proc"),
+            root.join("events"),
+            root.join("proc/demo"),
+        ];
+        let dirs: Vec<&PathBuf> = dirs.iter().collect();
+        let files = [events.clone(), root.join("proc/demo/card.json")];
+        let files: Vec<&PathBuf> = files.iter().collect();
+        let collide = |path: PathBuf| collides(&[path], &dirs, &files);
+        // The same file, spelled differently.
+        assert!(collide(events.clone()));
+        assert!(collide(root.join("events/./demo.ndjson")));
+        assert!(collide(root.join("proc/../events/demo.ndjson")));
+        assert!(collide(root.join("EVENTS/Demo.NDJSON")));
+        // A directory telemetry would create, or something inside it.
+        assert!(collide(root.join("proc")));
+        assert!(collide(root.join("proc/demo/out.xlsx")));
+        // Elsewhere, including beside an existing directory.
+        assert!(!collide(root.join("events/other.ndjson")));
+        assert!(!collide(root.join("out.xlsx")));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("events"), root.join("link")).unwrap();
+            assert!(collide(root.join("link/demo.ndjson")));
+        }
+        fs::remove_dir_all(&root).unwrap();
     }
 
     fn written() -> Value {
@@ -639,6 +777,29 @@ mod tests {
         assert_eq!(at(1_795_200_000, 999), "2026-11-20T18:40:00.999Z");
         assert_eq!(at(253_402_300_799, 0), "9999-12-31T23:59:59.000Z");
         assert!(is_utc_timestamp(&timestamp(SystemTime::now())));
+        for valid in [
+            "2024-02-29T00:00:00.000Z",
+            "2000-02-29T23:59:59.999Z",
+            "2026-12-31T12:30:45.001Z",
+        ] {
+            assert!(is_utc_timestamp(valid), "{valid}");
+        }
+        for invalid in [
+            "2026-02-29T00:00:00.000Z",
+            "1900-02-29T00:00:00.000Z",
+            "2026-02-31T00:00:00.000Z",
+            "2026-04-31T00:00:00.000Z",
+            "2026-13-01T00:00:00.000Z",
+            "2026-00-10T00:00:00.000Z",
+            "2026-01-00T00:00:00.000Z",
+            "2026-01-01T24:00:00.000Z",
+            "2026-01-01T23:60:00.000Z",
+            "2026-01-01T23:59:60.000Z",
+            "2026-01-01T23:59:59.000+00:00",
+            "2026-01-01 23:59:59.000Z",
+        ] {
+            assert!(!is_utc_timestamp(invalid), "{invalid}");
+        }
     }
 
     /// The card this program writes is accepted by its own check and by an
@@ -663,6 +824,8 @@ mod tests {
             Box::new(|c| c["pid"] = json!(0)),
             Box::new(|c| c["pid"] = json!("12")),
             Box::new(|c| c["started_at"] = json!("yesterday")),
+            Box::new(|c| c["started_at"] = json!("2026-02-31T10:00:00.000Z")),
+            Box::new(|c| c["started_at"] = json!("2026-02-28T24:61:61.000Z")),
             Box::new(|c| c["producer"] = json!({"name": "tablebolt"})),
             Box::new(|c| c["producer"]["extra"] = json!("x")),
             Box::new(|c| c["producer"]["profile"] = json!("")),

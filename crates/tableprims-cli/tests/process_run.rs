@@ -368,6 +368,70 @@ fn telemetry_failures_do_not_affect_the_run() {
     }
 }
 
+/// Telemetry gives way to the conversion. When a stream, card or directory
+/// it would create could be the workbook or the result, or would contain
+/// one of them, telemetry is off and the run ends as it does without it:
+/// same exit code, same result, the workbook where it was asked for.
+#[test]
+fn telemetry_never_takes_a_conversion_path() {
+    // (result, output, directories made first)
+    let layouts: [(&str, &str, &[&str]); 4] = [
+        ("rt/events/case-1.ndjson", "out.xlsx", &["rt/events"]),
+        ("rt/events/CASE-1.ndjson", "out.xlsx", &["rt/events"]),
+        ("result.json", "rt/proc/case-1", &["rt/proc"]),
+        ("result.json", "rt/proc/out.xlsx", &[]),
+    ];
+    for (index, (result, output, made)) in layouts.iter().enumerate() {
+        let mut ends = Vec::new();
+        for telemetry in [false, true] {
+            let case = Case::new(&format!("collide-{index}-{telemetry}"), ROWS);
+            for dir in *made {
+                fs::create_dir_all(case.path(dir)).unwrap();
+            }
+            let mut command = Command::new(env!("CARGO_BIN_EXE_tablebolt"));
+            command
+                .args(["xlsx", "write", "--run-id", "case-1", "--input"])
+                .arg(case.path("rows.ndjson"))
+                .arg("--schema")
+                .arg(case.path("schema.json"))
+                .arg("--policy")
+                .arg(case.path("policy.json"))
+                .arg("--output")
+                .arg(case.path(output))
+                .arg("--result")
+                .arg(case.path(result))
+                .env_remove("TABLEBOLT_RUNTIME_DIR");
+            if telemetry {
+                command.arg("--runtime-dir").arg(case.path("rt"));
+            }
+            let run = command.output().unwrap();
+            let code = run.status.code();
+            let status = fs::read(case.path(result))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .map(|value| value["status"].clone());
+            let workbook = fs::read(case.path(output))
+                .map(|bytes| bytes.starts_with(b"PK"))
+                .unwrap_or(false);
+            if telemetry {
+                assert!(!case.card("case-1").exists(), "layout {index}");
+                if made.is_empty() {
+                    assert!(!case.path("rt").exists(), "layout {index}");
+                }
+            }
+            ends.push((code, status, workbook));
+        }
+        assert_eq!(ends[0], ends[1], "layout {index}");
+        if !made.is_empty() {
+            assert_eq!(
+                ends[1],
+                (Some(0), Some(Value::from("ok")), true),
+                "layout {index}"
+            );
+        }
+    }
+}
+
 /// The run-id rule applies when the environment names the directory.
 #[test]
 fn the_run_id_rule_applies_through_the_environment() {

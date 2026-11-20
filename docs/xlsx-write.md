@@ -336,7 +336,16 @@ removed when the run ends, including a run stopped by a signal. A run
 killed outright leaves it behind; the contract calls such a card stale. The
 stream is kept. `started_at` on the card is the time the run recorded as
 it began, shortly after the process started, not the operating system's
-start time; compare the two with a tolerance.
+start time. Paired with the pid it helps a consumer find the run, but it
+cannot prove the process is the same one: a consumer that cannot check the
+pair against the operating system treats the identity as unverified. The
+card grants no control over the run.
+
+Telemetry gives way to the conversion: if a file or directory it would
+create could be one of the run's inputs, its workbook or its result (the
+same entry by another spelling, through a link, or differing only in
+letter case), or a directory it would create would contain one of them,
+the run has no telemetry.
 
 Directories this program creates are owner-only (0700) and files owner
 read-write (0600) on Unix; an existing runtime directory, `proc` or
