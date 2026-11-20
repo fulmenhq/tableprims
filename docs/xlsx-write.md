@@ -397,8 +397,11 @@ that last check does not stop the run: the workbook and result are
 published as in any run. A second SIGINT or SIGTERM ends the process at once by
 the signal's default action, publishing no result if it has not yet. A read
 that blocks, such as rows from a stalled pipe, delays the stop until data or
-the end of input arrives. On Windows, Ctrl-C is handled as SIGINT; Windows
-sends no SIGTERM, and Ctrl-Break or closing the console ends the process
+the end of input arrives, or until a second signal. A supervisor that
+sends SIGTERM once and then waits, such as `timeout` without `-k`, can wait
+for ever on rows from a stalled pipe: follow SIGTERM with a second signal or
+with SIGKILL after a grace period. On Windows, Ctrl-C is handled as SIGINT;
+Windows sends no SIGTERM, and Ctrl-Break or closing the console ends the process
 without a result. The rules are in
 [ADR-0003](decisions/ADR-0003-signals-stop-a-run.md), which is proposed.
 
