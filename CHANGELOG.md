@@ -92,6 +92,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- NOTICE: a project name notice for `tableprims` and `tablebolt`, the 3 Leaps
+  and Fulmen marks, and a link to the 3 Leaps OSS policies at a fixed
+  revision.
 - The rows, schema, policy and result now follow the Tabular Exchange
   Standard, contract revision `tabular-exchange/0.1.0`, published in
   fulmenhq/crucible. See `docs/xlsx-write.md`.
