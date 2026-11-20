@@ -1,8 +1,9 @@
 ---
 id: "DDR-0002"
 title: "A typed table model, strict documents, and what belongs in a shared contract"
-status: "accepted"
+status: "superseded"
 date: "2026-11-19"
+superseded-by: "DDR-0004-tabular-exchange-standard.md"
 relates-to:
   - "DDR-0001-exact-values-and-representation.md"
   - "ADR-0002-conversion-result-and-process-boundary.md"

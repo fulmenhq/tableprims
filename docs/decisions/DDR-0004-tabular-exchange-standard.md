@@ -1,7 +1,7 @@
 ---
 id: "DDR-0004"
 title: "The Tabular Exchange Standard governs the table model and the documents"
-status: "proposed"
+status: "accepted"
 date: "2026-11-20"
 supersedes: "DDR-0002-typed-table-and-document-formats.md"
 relates-to:

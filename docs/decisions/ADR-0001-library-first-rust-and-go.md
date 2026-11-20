@@ -6,6 +6,7 @@ date: "2026-11-19"
 relates-to:
   - "PDR-0001-independent-expected-results.md"
   - "DDR-0002-typed-table-and-document-formats.md"
+  - "DDR-0004-tabular-exchange-standard.md"
 ---
 
 # ADR-0001: A Library First, in Rust and Then Pure Go, Under One Version

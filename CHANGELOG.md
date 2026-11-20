@@ -65,6 +65,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   result, exact values, the typed table and its documents, expected results,
   record keeping, and untrusted input and dependencies, under
   `docs/decisions/`.
+- DDR-0004: the Tabular Exchange Standard governs the table model and the
+  documents. It supersedes DDR-0002.
 
 ### Changed
 

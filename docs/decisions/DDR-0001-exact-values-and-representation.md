@@ -5,6 +5,7 @@ status: "accepted"
 date: "2026-11-19"
 relates-to:
   - "DDR-0002-typed-table-and-document-formats.md"
+  - "DDR-0004-tabular-exchange-standard.md"
   - "../xlsx-write.md"
 ---
 
