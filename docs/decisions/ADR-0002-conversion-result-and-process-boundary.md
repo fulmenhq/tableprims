@@ -66,8 +66,8 @@ that later finds a converted file has neither.
    by signal. A signal before the result is published leaves no result and
    can leave a converted file without one. A signal after it is published
    does not undo a result that matches. Status `cancelled` and exit codes 130
-   and 143 are reserved and not produced. *This rule is superseded by
-   [ADR-0003](ADR-0003-signals-stop-a-run.md).*
+   and 143 are reserved and not produced. *[ADR-0003](ADR-0003-signals-stop-a-run.md),
+   proposed, would supersede this rule.*
 
 ## Alternatives
 

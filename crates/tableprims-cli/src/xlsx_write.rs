@@ -573,8 +573,6 @@ pub(crate) fn parse_run_id(text: &str) -> Result<String, String> {
 
 /// Runs the conversion and returns the exit code and a diagnostic line.
 pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>) {
-    // The token names this run's temporary files and, without a caller
-    // identifier, the run itself. Without one nothing is written.
     let signals = match Signals::install() {
         Ok(signals) => signals,
         Err(error) => {
@@ -587,6 +585,8 @@ pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>)
             );
         }
     };
+    // The token names this run's temporary files and, without a caller
+    // identifier, the run itself. Without one nothing is written.
     let Ok(token) = random_token() else {
         return (
             EXIT_FAILURE,

@@ -17,8 +17,8 @@
 //! | 61   | malformed input |
 //! | 62   | a type or value the destination cannot represent under the policy |
 //! | 64   | command-line usage error |
-//! | 130  | stopped by SIGINT |
-//! | 143  | stopped by SIGTERM |
+//! | 130  | stopped by SIGINT (on Unix, the process ends by SIGINT) |
+//! | 143  | stopped by SIGTERM (on Unix, the process ends by SIGTERM) |
 //!
 //! A broken pipe while printing is treated as success: the reader chose to stop.
 //! Any other failure to write requested output, including help text, exits 54.
@@ -134,6 +134,12 @@ fn main() -> ExitCode {
             let (code, line) = xlsx_write::run(&files, run_id);
             if let Some(line) = line {
                 diagnostic(&format!("{}: {line}\n", identity::BINARY_NAME));
+            }
+            if matches!(
+                code,
+                xlsx_write::EXIT_SIGNAL_INT | xlsx_write::EXIT_SIGNAL_TERM
+            ) {
+                signals::end_by_signal(code);
             }
             return ExitCode::from(code);
         }

@@ -367,34 +367,37 @@ the counts above.
 
 ## Exit codes
 
-| Code | Meaning                                                              | `status`  |
-| ---- | -------------------------------------------------------------------- | --------- |
-| 0    | complete                                                             | `ok`      |
-| 1    | internal failure                                                     | `failed`  |
-| 33   | the system ran out of storage or memory                              | `failed`  |
-| 50   | permission denied                                                    | `failed`  |
-| 51   | an input file does not exist                                         | `failed`  |
-| 53   | an input could not be read, or changed while it was read             | `failed`  |
-| 54   | a file could not be written, or `--output` or `--result` exists      | `failed`  |
-| 60   | a value does not fit the schema, or a configured limit was exceeded  | `refused` |
-| 61   | malformed rows, schema or policy                                     | `refused` |
-| 62   | a type, value or sheet name the workbook cannot represent; no sheet  | `refused` |
-| 64   | command-line usage error; no result file                             |           |
-| 130  | stopped by SIGINT                                                    | `cancelled` |
-| 143  | stopped by SIGTERM                                                   | `cancelled` |
+| Code | Meaning                                                             | `status`    |
+| ---- | ------------------------------------------------------------------- | ----------- |
+| 0    | complete                                                            | `ok`        |
+| 1    | internal failure                                                    | `failed`    |
+| 33   | the system ran out of storage or memory                             | `failed`    |
+| 50   | permission denied                                                   | `failed`    |
+| 51   | an input file does not exist                                        | `failed`    |
+| 53   | an input could not be read, or changed while it was read            | `failed`    |
+| 54   | a file could not be written, or `--output` or `--result` exists     | `failed`    |
+| 60   | a value does not fit the schema, or a configured limit was exceeded | `refused`   |
+| 61   | malformed rows, schema or policy                                    | `refused`   |
+| 62   | a type, value or sheet name the workbook cannot represent; no sheet | `refused`   |
+| 64   | command-line usage error; no result file                            |             |
+| 130  | stopped by SIGINT; on Unix the process ends by SIGINT               | `cancelled` |
+| 143  | stopped by SIGTERM; on Unix the process ends by SIGTERM             | `cancelled` |
 
 A result file is written for every code except 64, when it can be.
 
 The first SIGINT or SIGTERM stops the run before its next row, or after the
-workbook is written and before it is published. The run then removes its
-temporary files, publishes a result with status `cancelled` and category and
-rule `cancelled`, and exits 130 after SIGINT or 143 after SIGTERM. A signal
-that arrives once the workbook is published does not stop the run: it
-completes. A second SIGINT or SIGTERM ends the process at once with the code
-of that signal and no result. On Windows, Ctrl-C is handled as SIGINT;
-Windows sends no SIGTERM, and Ctrl-Break or closing the console ends the
-process without a result. The rules are in
-[ADR-0003](decisions/ADR-0003-signals-stop-a-run.md).
+workbook is written and just before it is published. The run then removes
+its temporary files and publishes a result with status `cancelled` and
+category and rule `cancelled`. On Unix the process then ends by that signal,
+which a shell reports as 130 or 143, so a loop of runs stops; on Windows it
+exits 130. A signal that arrives after that last check does not stop the
+run: it completes. A second SIGINT or SIGTERM ends the process at once by
+the signal's default action, publishing no result if it has not yet. A read
+that blocks, such as rows from a stalled pipe, delays the stop until data or
+the end of input arrives. On Windows, Ctrl-C is handled as SIGINT; Windows
+sends no SIGTERM, and Ctrl-Break or closing the console ends the process
+without a result. The rules are in
+[ADR-0003](decisions/ADR-0003-signals-stop-a-run.md), which is proposed.
 
 A kill, a second signal, or a signal that is not handled ends the process
 where it stands. No partly written file is left under the `--output` or

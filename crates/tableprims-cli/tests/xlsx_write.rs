@@ -1089,9 +1089,38 @@ fn send(child: &std::process::Child, signal: &str) {
     assert!(status.success(), "kill -{signal}");
 }
 
+/// Waits for a child for at most a minute, killing it and failing the test
+/// if it has not ended by then.
 #[cfg(unix)]
-fn check_cancelled(case: &Case, output: &Output, code: i32) -> Value {
-    assert_eq!(output.status.code(), Some(code));
+fn wait_bounded(mut child: std::process::Child) -> Output {
+    let started = std::time::Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        if started.elapsed().as_secs() >= 60 {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the run did not end within a minute");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    child.wait_with_output().unwrap()
+}
+
+/// How a child ended: its exit code, or the signal that ended it.
+#[cfg(unix)]
+fn ending(output: &Output) -> (Option<i32>, Option<i32>) {
+    use std::os::unix::process::ExitStatusExt;
+    (output.status.code(), output.status.signal())
+}
+
+const SIGINT: i32 = 2;
+const SIGTERM: i32 = 15;
+
+/// Checks a run stopped by `signal`: it published a `cancelled` result,
+/// left nothing else, and then ended by that signal, which a shell reports
+/// as 128 plus the signal number (130, 143).
+#[cfg(unix)]
+fn check_cancelled(case: &Case, output: &Output, signal: i32) -> Value {
+    assert_eq!(ending(output), (None, Some(signal)));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
         "tablebolt: cancelled: cancelled: cancelled\n"
@@ -1111,11 +1140,11 @@ fn check_cancelled(case: &Case, output: &Output, code: i32) -> Value {
 }
 
 /// SIGINT or SIGTERM while the workbook is written stops the run: no
-/// workbook, a result that says `cancelled`, and the code of the signal.
+/// workbook, a result that says `cancelled`, and death by that signal.
 #[cfg(unix)]
 #[test]
 fn a_signal_while_writing_stops_the_run_and_says_so() {
-    for (signal, code) in [("INT", 130), ("TERM", 143)] {
+    for (signal, number) in [("INT", SIGINT), ("TERM", SIGTERM)] {
         let case = Case::new(
             &format!("signal-{signal}"),
             SCHEMA,
@@ -1125,8 +1154,8 @@ fn a_signal_while_writing_stops_the_run_and_says_so() {
         let mut child = spawn_long(&case);
         wait_for_workbook_temporary(&case, &mut child);
         send(&child, signal);
-        let output = child.wait_with_output().unwrap();
-        let result = check_cancelled(&case, &output, code);
+        let output = wait_bounded(child);
+        let result = check_cancelled(&case, &output, number);
         // The first read was complete, so the rows are bound.
         assert_eq!(
             result["inputs"]["source"],
@@ -1135,13 +1164,12 @@ fn a_signal_while_writing_stops_the_run_and_says_so() {
     }
 }
 
-/// A signal during the first read. The rows come through a pipe, so the
-/// signal is sent while the run is known to be reading them.
+/// A case whose rows are a named pipe, and a run reading it. Returns once
+/// the run has opened the pipe, which it does after reading the schema and
+/// the policy and installing its handlers, with the writing end.
 #[cfg(unix)]
-#[test]
-fn a_signal_while_reading_stops_the_run_and_says_so() {
-    use std::io::Write;
-    let case = Case::new("signal-read", SCHEMA, POLICY, "");
+fn run_on_pipe(name: &str) -> (Case, std::process::Child, fs::File) {
+    let case = Case::new(name, SCHEMA, POLICY, "");
     let rows = case.dir.join("rows.ndjson");
     fs::remove_file(&rows).unwrap();
     assert!(Command::new("mkfifo")
@@ -1150,20 +1178,35 @@ fn a_signal_while_reading_stops_the_run_and_says_so() {
         .unwrap()
         .success());
     let child = spawn_long(&case);
-    // Opening blocks until the run opens the rows, after it has read the
-    // schema and the policy and installed its handlers.
-    let mut writer = fs::OpenOptions::new().write(true).open(&rows).unwrap();
+    // Opening blocks until the run opens the other end.
+    let writer = fs::OpenOptions::new().write(true).open(&rows).unwrap();
+    (case, child, writer)
+}
+
+/// Replaces the pipe with an empty file so the directory lists as usual.
+#[cfg(unix)]
+fn unpipe(case: &Case) {
+    let rows = case.dir.join("rows.ndjson");
+    let _ = fs::remove_file(&rows);
+    fs::write(&rows, "").unwrap();
+}
+
+/// A signal during the first read. The run is waiting for the next row
+/// when the signal comes, and checks the flag before reading it.
+#[cfg(unix)]
+#[test]
+fn a_signal_while_reading_stops_the_run_and_says_so() {
+    use std::io::Write;
+    let (case, child, mut writer) = run_on_pipe("signal-read");
     writer
         .write_all(b"[\"INV-1\",\"3\",\"12.3450\",true]\n")
         .unwrap();
     send(&child, "INT");
     writer.write_all(b"[\"INV-2\",\"4\",null,null]\n").unwrap();
     drop(writer);
-    let output = child.wait_with_output().unwrap();
-    // The pipe is gone once read; put a file back for the listing.
-    let _ = fs::remove_file(&rows);
-    fs::write(&rows, "").unwrap();
-    let result = check_cancelled(&case, &output, 130);
+    let output = wait_bounded(child);
+    unpipe(&case);
+    let result = check_cancelled(&case, &output, SIGINT);
     // The rows were not read to their end, so they are not bound.
     assert!(result["inputs"].get("source").is_none(), "{result}");
     assert_eq!(
@@ -1172,26 +1215,26 @@ fn a_signal_while_reading_stops_the_run_and_says_so() {
     );
 }
 
-/// A second signal ends the process at once with the code of that signal.
-/// Whether the first had already let the run stop and publish its result
-/// depends on timing; either way there is no workbook.
+/// A second signal ends the process at once by its default action. Both
+/// come while the run waits for a row, so no result has been published.
 #[cfg(unix)]
 #[test]
 fn a_second_signal_ends_the_run_at_once() {
-    let case = Case::new("signal-twice", SCHEMA, POLICY, &long_rows(400_000));
-    let mut child = spawn_long(&case);
-    wait_for_workbook_temporary(&case, &mut child);
-    send(&child, "INT");
-    send(&child, "TERM");
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        matches!(output.status.code(), Some(130 | 143)),
-        "{output:?}"
-    );
-    let names = case.names();
-    assert!(!names.contains(&"out.xlsx".to_owned()), "{names:?}");
-    if names.contains(&"result.json".to_owned()) {
-        assert_eq!(case.result()["status"], "cancelled");
+    for (first, second, number) in [("INT", "TERM", SIGTERM), ("TERM", "INT", SIGINT)] {
+        let (case, child, writer) = run_on_pipe(&format!("signal-twice-{first}"));
+        send(&child, first);
+        // Let the first be handled before the second is sent; signals
+        // pending together are not delivered in a promised order.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        send(&child, second);
+        let output = wait_bounded(child);
+        drop(writer);
+        unpipe(&case);
+        assert_eq!(ending(&output), (None, Some(number)), "{first} {second}");
+        assert!(output.stderr.is_empty(), "{first} {second}");
+        let names = case.names();
+        assert!(!names.contains(&"out.xlsx".to_owned()), "{names:?}");
+        assert!(!names.contains(&"result.json".to_owned()), "{names:?}");
     }
 }
 
