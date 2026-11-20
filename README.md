@@ -18,6 +18,13 @@ may change before the first release. Workbooks have been checked by reading them
 back with an independent parser, not by opening them in a spreadsheet
 application.
 
+The tests run the standard's value, row and document vectors and its table
+schema and conversion policy fixtures, 477 of the 639 vectors and fixtures in
+the crucible release `v0.5.1`, through the `tablebolt` binary, and all agree.
+The conversion result fixtures and the matching vectors are not run:
+`tablebolt` writes results and does not read them. See
+[Vectors of the standard](docs/xlsx-write.md#vectors-of-the-standard).
+
 ## What we are building
 
 A reusable library that converts typed tables to and from spreadsheet and
@@ -39,6 +46,7 @@ IPC and Parquet adapters are planned against the same typed contract.
 | `crates/tableprims`     | Rust library: conversion semantics and policy    |
 | `crates/tableprims-cli` | Thin CLI package; builds the `tablebolt` binary  |
 | `crates/tableprims-xlsx` | XLSX write adapter                               |
+| `third_party/crucible`  | Vectors, fixtures and schemas of the standard, vendored unedited |
 
 ## Language surfaces
 

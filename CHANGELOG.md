@@ -67,6 +67,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/decisions/`.
 - DDR-0004: the Tabular Exchange Standard governs the table model and the
   documents. It supersedes DDR-0002.
+- The vectors, fixtures and JSON Schemas of `tabular-exchange/0.1.0`,
+  vendored unedited from the fulmenhq/crucible release `v0.5.1` (CC0-1.0)
+  under `third_party/crucible/`, with their origin, commit, licence and a
+  SHA-256 for every file. A test compares every vendored file with its
+  digest.
+- Tests that run the standard's vectors through the `tablebolt` binary and
+  compare status, category, rule and location: 200 value texts, 25 cells, 77
+  quantize vectors, 76 row vectors, 31 document vectors, 36 table schema
+  fixtures and 32 conversion policy fixtures, 477 of the 639 in the release.
+  All agree. The 92 conversion result fixtures and the 70 matching vectors
+  are not run, because `tablebolt` does not read results. Every vector is
+  run or counted with a reason, the counts are exact, and each suite has a
+  test that alters an expectation and requires a disagreement. See
+  `docs/xlsx-write.md`.
 
 ### Changed
 

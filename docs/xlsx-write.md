@@ -294,6 +294,70 @@ establishes neither verdict.
 A result whose `status` is not `ok` establishes neither verdict, and so does a
 workbook with no result.
 
+## Vectors of the standard
+
+The vectors, fixtures and JSON Schemas of contract revision
+`tabular-exchange/0.1.0` are vendored unedited from the fulmenhq/crucible
+release `v0.5.1` under
+[`third_party/crucible/`](../third_party/crucible/PROVENANCE.md), with the
+origin, commit, licence and a SHA-256 for every file. The tests check those
+digests, run the vectors through the built `tablebolt` binary and compare the
+status, category, rule and location of each outcome with the one the vector
+states. `make check` runs them; nothing is fetched.
+
+| Suite                              | In the release | Run | Agree |
+| ---------------------------------- | -------------- | --- | ----- |
+| value vectors: `integer`           | 43             | 43  | 43    |
+| value vectors: `decimal`           | 45             | 45  | 45    |
+| value vectors: `date`              | 28             | 28  | 28    |
+| value vectors: `local-timestamp`   | 45             | 45  | 45    |
+| value vectors: `offset-timestamp`  | 39             | 39  | 39    |
+| value vectors: `cells`             | 25             | 25  | 25    |
+| value vectors: `quantize`          | 77             | 77  | 77    |
+| row vectors                        | 76             | 76  | 76    |
+| document vectors                   | 31             | 31  | 31    |
+| fixtures: table schema             | 36             | 36  | 36    |
+| fixtures: conversion policy        | 32             | 32  | 32    |
+| fixtures: conversion result        | 92             | 0   |       |
+| matching vectors                   | 70             | 0   |       |
+| total                              | 639            | 477 | 477   |
+
+- **Not run.** `tablebolt` writes results and does not read them, so the 92
+  conversion result fixtures and the 70 matching vectors are not run. This
+  program has not been judged as a reader of results or as a matcher, and it
+  does not validate a document against the JSON Schemas.
+- **Quantize vectors.** The binary is compared on the verdict, the rule and
+  the `quantized` and `scale_changed` counts. The text of the 75 quantized
+  values is read back from the workbook with an independent reader in the
+  tests of the workbook writer, which run the same 77 vectors through the
+  library.
+- **Policy fixtures.** No policy the standard accepts names a worksheet, and
+  this command requires one. Each of the 32 fixtures is run as released: a
+  fixture the standard refuses must be refused under the stated category and
+  rule, and the four it accepts must be read and then refused with
+  `sheet-name-missing` and nothing else. The 22 fixtures that are a JSON
+  object without an `extensions` member are run a second time with
+  `extensions.tableprims.sheet` added, and must then have exactly the stated
+  outcome; the four valid ones complete. The other ten carry their own
+  `extensions` member or are not an object, and are run as released only.
+- **Results written in these runs.** Each of them is checked against what
+  the test holds: the members and closed lists of the standard, which members
+  go with which status, the registered category of the rule, the run
+  identifier, the length and digest of each input and of the workbook, and
+  the arithmetic of the counts. That is a check of this program's own output
+  and not a reader of results.
+- **A check that can fail.** For every suite a test alters or removes an
+  expectation, or alters the input, and requires a disagreement. Others
+  change, remove and add a vendored file, add a vector no suite counts, and
+  alter a written result, and require each to be reported.
+
+The standard checks a reader by running the vectors and comparing category,
+rule and location, and checks a consumer of results by running the result
+fixtures and the matching vectors. This program is run here as a reader of
+rows, schemas and policies only. Nothing in this repository executes the
+result fixtures or the matching vectors, and no conformance is claimed beyond
+the counts above.
+
 ## Exit codes
 
 | Code | Meaning                                                              | `status`  |
