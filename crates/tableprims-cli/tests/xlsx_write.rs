@@ -1215,6 +1215,33 @@ fn a_signal_while_reading_stops_the_run_and_says_so() {
     );
 }
 
+/// A stopped run whose result name is taken meanwhile fails as any run
+/// whose result cannot be written: code 54, no workbook, the other file
+/// left alone, and no death by signal, since no cancelled result was
+/// published.
+#[cfg(unix)]
+#[test]
+fn a_stopped_run_whose_result_name_is_taken_fails_without_the_signal() {
+    use std::io::Write;
+    let (case, child, mut writer) = run_on_pipe("signal-taken");
+    writer
+        .write_all(b"[\"INV-1\",\"3\",\"12.3450\",true]\n")
+        .unwrap();
+    fs::write(case.dir.join("result.json"), b"theirs").unwrap();
+    send(&child, "INT");
+    writer.write_all(b"[\"INV-2\",\"4\",null,null]\n").unwrap();
+    drop(writer);
+    let output = wait_bounded(child);
+    unpipe(&case);
+    assert_eq!(ending(&output), (Some(54), None));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot write the result file"));
+    assert_eq!(fs::read(case.dir.join("result.json")).unwrap(), b"theirs");
+    assert_eq!(
+        case.names(),
+        ["policy.json", "result.json", "rows.ndjson", "schema.json"]
+    );
+}
+
 /// A second signal ends the process at once by its default action. Both
 /// come while the run waits for a row, so no result has been published.
 #[cfg(unix)]

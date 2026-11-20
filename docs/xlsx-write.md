@@ -388,10 +388,13 @@ A result file is written for every code except 64, when it can be.
 The first SIGINT or SIGTERM stops the run before its next row, or after the
 workbook is written and just before it is published. The run then removes
 its temporary files and publishes a result with status `cancelled` and
-category and rule `cancelled`. On Unix the process then ends by that signal,
-which a shell reports as 130 or 143, so a loop of runs stops; on Windows it
-exits 130. A signal that arrives after that last check does not stop the
-run: it completes. A second SIGINT or SIGTERM ends the process at once by
+category and rule `cancelled`. Once that result is published, the process
+ends by that signal on Unix, which a shell reports as 130 or 143, so a loop
+of runs stops; on Windows it exits 130. If the result cannot be published,
+the run fails as any run does whose result cannot be written (54 when its
+name is taken) and does not end by the signal. A signal that arrives after
+that last check does not stop the run: the workbook and result are
+published as in any run. A second SIGINT or SIGTERM ends the process at once by
 the signal's default action, publishing no result if it has not yet. A read
 that blocks, such as rows from a stalled pipe, delays the stop until data or
 the end of input arrives. On Windows, Ctrl-C is handled as SIGINT; Windows
