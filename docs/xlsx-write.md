@@ -225,7 +225,7 @@ fail, and a workbook can be left without a result. Give each run its own names. 
 - `format` is the wire format of the result and `contract` the revision of
   the standard it was written to. Every member outside `extensions` is
   defined by the standard and can be read without knowing this program.
-- `status` is `ok`, `refused` or `failed`; `cancelled` is reserved. `output` and `counts` are present
+- `status` is `ok`, `refused`, `failed` or `cancelled`. `output` and `counts` are present
   only for `ok`. Any other status has
   `"refusal": {"category": "…", "rule": "…", "row": 12, "column": "amount"}`,
   with `row` (zero-based) and `column` where they apply. Cell content never
@@ -367,29 +367,49 @@ the counts above.
 
 ## Exit codes
 
-| Code | Meaning                                                              | `status`  |
-| ---- | -------------------------------------------------------------------- | --------- |
-| 0    | complete                                                             | `ok`      |
-| 1    | internal failure                                                     | `failed`  |
-| 33   | the system ran out of storage or memory                              | `failed`  |
-| 50   | permission denied                                                    | `failed`  |
-| 51   | an input file does not exist                                         | `failed`  |
-| 53   | an input could not be read, or changed while it was read             | `failed`  |
-| 54   | a file could not be written, or `--output` or `--result` exists      | `failed`  |
-| 60   | a value does not fit the schema, or a configured limit was exceeded  | `refused` |
-| 61   | malformed rows, schema or policy                                     | `refused` |
-| 62   | a type, value or sheet name the workbook cannot represent; no sheet  | `refused` |
-| 64   | command-line usage error; no result file                             |           |
+| Code | Meaning                                                             | `status`    |
+| ---- | ------------------------------------------------------------------- | ----------- |
+| 0    | complete                                                            | `ok`        |
+| 1    | internal failure                                                    | `failed`    |
+| 33   | the system ran out of storage or memory                             | `failed`    |
+| 50   | permission denied                                                   | `failed`    |
+| 51   | an input file does not exist                                        | `failed`    |
+| 53   | an input could not be read, or changed while it was read            | `failed`    |
+| 54   | a file could not be written, or `--output` or `--result` exists     | `failed`    |
+| 60   | a value does not fit the schema, or a configured limit was exceeded | `refused`   |
+| 61   | malformed rows, schema or policy                                    | `refused`   |
+| 62   | a type, value or sheet name the workbook cannot represent; no sheet | `refused`   |
+| 64   | command-line usage error; no result file                            |             |
+| 130  | stopped by SIGINT; on Unix the process ends by SIGINT               | `cancelled` |
+| 143  | stopped by SIGTERM; on Unix the process ends by SIGTERM             | `cancelled` |
 
 A result file is written for every code except 64, when it can be.
 
-This version installs no signal handler. An interrupt or a kill ends the
-process at once: a supervisor sees death by signal, not exit code 130 or 143,
-and no result file with status `cancelled` is produced; those codes and that
-status are reserved. No partly written file is left under the `--output` or `--result` name,
-because each is published only when complete; a kill between the two leaves a
-workbook without a result. Temporary files can remain
-beside either and may be deleted: this program's are named
+The first SIGINT or SIGTERM stops the run before its next row, or after the
+workbook is written and just before it is published. The run then removes
+its temporary files and publishes a result with status `cancelled` and
+category and rule `cancelled`. Once that result is published, the process
+ends by that signal on Unix, which a shell reports as 130 or 143, so a loop
+of runs stops; on Windows it exits 130. If the result cannot be published,
+the run fails as any run does whose result cannot be written (54 when its
+name is taken) and does not end by the signal. A signal that arrives after
+that last check does not stop the run: the workbook and result are
+published as in any run. A second SIGINT or SIGTERM ends the process at once by
+the signal's default action, publishing no result if it has not yet. A read
+that blocks, such as rows from a stalled pipe, delays the stop until data or
+the end of input arrives, or until a second signal. A supervisor that
+sends SIGTERM once and then waits, such as `timeout` without `-k`, can wait
+for ever on rows from a stalled pipe: follow SIGTERM with a second signal or
+with SIGKILL after a grace period. On Windows, Ctrl-C is handled as SIGINT;
+Windows sends no SIGTERM, and Ctrl-Break or closing the console ends the
+process without a result. The rules are in
+[ADR-0003](decisions/ADR-0003-signals-stop-a-run.md).
+
+A kill, a second signal, or a signal that is not handled ends the process
+where it stands. No partly written file is left under the `--output` or
+`--result` name, because each is published only when complete; ending
+between the two leaves a workbook without a result. Temporary files can
+remain beside either and may be deleted: this program's are named
 `.tablebolt-<32 hexadecimal digits>.` followed by a purpose and `.tmp`, and
 the workbook writer's scratch files `.tmp` followed by six characters.
 
