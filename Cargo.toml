@@ -32,6 +32,9 @@ rust_xlsxwriter = { version = "=0.102.0", default-features = false, features = [
 # Test-only readers.
 calamine = { version = "=0.38.0", default-features = false }
 zip = { version = "9", default-features = false, features = ["deflate"] }
+# Test-only: an independent JSON Schema (Draft 2020-12) validator for the
+# vendored process-run schemas.
+jsonschema = { version = "0.58", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -27,5 +27,8 @@ canonprims-core.workspace = true
 canonprims-json.workspace = true
 signal-hook.workspace = true
 
+[dev-dependencies]
+jsonschema.workspace = true
+
 [lints]
 workspace = true
