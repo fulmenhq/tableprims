@@ -710,6 +710,32 @@ mod unix {
             .contains(&last(&events)["event"].as_str().unwrap()));
     }
 
+    /// Rows given as a link to nothing, where the link points at the stream
+    /// telemetry would create. Telemetry cannot tell the two apart, so it is
+    /// off: the rows stay missing, and the run ends as it does without
+    /// telemetry.
+    #[test]
+    fn a_dangling_input_link_turns_telemetry_off() {
+        let mut ends = Vec::new();
+        for telemetry in [false, true] {
+            let case = Case::new(&format!("dangling-{telemetry}"), ROWS);
+            fs::create_dir_all(case.path("rt/events")).unwrap();
+            fs::remove_file(case.path("rows.ndjson")).unwrap();
+            std::os::unix::fs::symlink(case.stream("case-1"), case.path("rows.ndjson")).unwrap();
+            let runtime = case.runtime();
+            let mut args = vec!["--run-id", "case-1"];
+            if telemetry {
+                args.extend(["--runtime-dir", &runtime]);
+            }
+            let output = case.run(&args);
+            assert!(!case.stream("case-1").exists(), "{telemetry}");
+            assert!(!case.card("case-1").exists(), "{telemetry}");
+            ends.push((output.status.code(), case.result()["refusal"].clone()));
+        }
+        assert_eq!(ends[0], ends[1]);
+        assert_eq!(ends[0].0, Some(51));
+    }
+
     /// SIGTERM ends a waiting run with `canceled` and reason `SIGTERM`.
     #[test]
     fn sigterm_is_reported_as_the_reason() {

@@ -434,19 +434,29 @@ fn open(setup: &Setup) -> Option<(Stream, PathBuf)> {
 /// A path as lowercase components, for comparison: the longest part that
 /// exists resolved through symbolic links, the rest as written. Lowercase
 /// so that names a case-insensitive file system would treat as one compare
-/// equal; that can only find more collisions, never fewer.
+/// equal; that can only find more collisions, never fewer. `None` when the
+/// path cannot be told apart from another: an entry that exists but does
+/// not resolve, such as a link to nothing, or an existing part that cannot
+/// be resolved.
 fn comparison_key(path: &Path) -> Option<Vec<String>> {
     let path = std::path::absolute(path).ok()?;
     let mut existing = PathBuf::new();
     let mut rest = Vec::new();
     for component in path.components() {
-        if rest.is_empty() && existing.join(component).exists() {
-            existing.push(component);
-        } else {
-            rest.push(component);
+        if rest.is_empty() {
+            let next = existing.join(component);
+            // Not following links: a dangling link exists as an entry.
+            if fs::symlink_metadata(&next).is_ok() {
+                if !next.exists() {
+                    return None;
+                }
+                existing = next;
+                continue;
+            }
         }
+        rest.push(component);
     }
-    let base = fs::canonicalize(&existing).unwrap_or(existing);
+    let base = fs::canonicalize(&existing).ok()?;
     let mut key: Vec<String> = base
         .components()
         .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
@@ -757,6 +767,14 @@ mod tests {
         {
             std::os::unix::fs::symlink(root.join("events"), root.join("link")).unwrap();
             assert!(collide(root.join("link/demo.ndjson")));
+            // A link to nothing, whether its target is planned or not, and
+            // a path through one, cannot be told apart: telemetry is off.
+            std::os::unix::fs::symlink(root.join("events/demo.ndjson"), root.join("dangling"))
+                .unwrap();
+            assert!(collide(root.join("dangling")));
+            std::os::unix::fs::symlink(root.join("nowhere"), root.join("lost")).unwrap();
+            assert!(collide(root.join("lost")));
+            assert!(collide(root.join("lost/below/out.xlsx")));
         }
         fs::remove_dir_all(&root).unwrap();
     }
