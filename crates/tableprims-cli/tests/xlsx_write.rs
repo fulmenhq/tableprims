@@ -10,13 +10,14 @@ use std::process::{Command, Output};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-const SCHEMA: &str = r#"{"format":"tableprims.schema/0","columns":[
+const SCHEMA: &str = r#"{"format":"tabular-exchange.schema/0","columns":[
  {"id":"invoice","label":"Invoice","type":"string","nullable":false},
  {"id":"qty","label":"Qty","type":"integer","nullable":false},
  {"id":"amount","label":"Amount","type":"decimal","precision":12,"scale":4,"nullable":true},
  {"id":"paid","label":"Paid","type":"boolean","nullable":true}]}"#;
-const POLICY: &str = r#"{"format":"tableprims.policy/0","exact_numbers":"require-exact","sheet":"Data",
- "quantize":[{"column":"amount","scale":2,"rounding":"half-even"}]}"#;
+const POLICY: &str = r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact",
+ "quantize":[{"column":"amount","scale":2,"rounding":"half-even"}],
+ "extensions":{"tableprims":{"sheet":"Data"}}}"#;
 const ROWS: &str = concat!(
     "[\"INV-1\",\"3\",\"12.3450\",true]\n",
     "[\"\",\"7\",\"123.4500\",null]\n",
@@ -68,7 +69,10 @@ impl Case {
     }
 
     fn result(&self) -> Value {
-        serde_json::from_slice(&fs::read(self.dir.join("result.json")).unwrap()).unwrap()
+        let result =
+            serde_json::from_slice(&fs::read(self.dir.join("result.json")).unwrap()).unwrap();
+        check_result_envelope(&result);
+        result
     }
 
     fn names(&self) -> Vec<String> {
@@ -98,6 +102,106 @@ fn sum(path: &Path) -> Value {
 
 const INPUTS: [&str; 3] = ["policy.json", "rows.ndjson", "schema.json"];
 
+/// The members a result may have at its top level.
+const RESULT_MEMBERS: [&str; 10] = [
+    "format",
+    "contract",
+    "status",
+    "run_id",
+    "profile",
+    "inputs",
+    "output",
+    "counts",
+    "refusal",
+    "extensions",
+];
+
+/// Counts the values under `value` and checks every string, member name and
+/// number against the bounds on `extensions`. Returns the deepest nesting,
+/// counting `value` itself as `depth`.
+fn measure(value: &Value, depth: usize, values: &mut usize) -> usize {
+    match value {
+        Value::String(text) => {
+            assert!(text.chars().count() <= 256);
+            depth - 1
+        }
+        Value::Number(number) => {
+            assert!(number.as_u64().unwrap() <= 9_007_199_254_740_991);
+            depth - 1
+        }
+        Value::Array(items) => {
+            *values += items.len();
+            items
+                .iter()
+                .map(|item| measure(item, depth + 1, values))
+                .max()
+                .unwrap_or(depth)
+                .max(depth)
+        }
+        Value::Object(members) => {
+            *values += members.len();
+            members
+                .iter()
+                .map(|(name, member)| {
+                    assert!(name.chars().count() <= 256);
+                    measure(member, depth + 1, values)
+                })
+                .max()
+                .unwrap_or(depth)
+                .max(depth)
+        }
+        _ => depth - 1,
+    }
+}
+
+/// Checks what every result has, whatever its status: the format and the
+/// contract revision, no member the contract does not define, and
+/// implementation members only under this program's extension namespace
+/// and within the bounds on `extensions`.
+fn check_result_envelope(result: &Value) {
+    assert_eq!(result["format"], "tabular-exchange.result/0");
+    assert_eq!(result["contract"], "tabular-exchange/0.1.0");
+    for name in result.as_object().unwrap().keys() {
+        assert!(RESULT_MEMBERS.contains(&name.as_str()), "{name}");
+    }
+    for name in result["inputs"].as_object().unwrap().keys() {
+        assert!(
+            ["source", "schema", "policy"].contains(&name.as_str()),
+            "{name}"
+        );
+    }
+    let ok = result["status"] == "ok";
+    assert_eq!(result.get("output").is_some(), ok);
+    assert_eq!(result.get("counts").is_some(), ok);
+    assert_eq!(result.get("refusal").is_some(), !ok);
+    let extensions = result["extensions"].as_object().unwrap();
+    assert_eq!(extensions.keys().collect::<Vec<_>>(), ["tableprims"]);
+    let ours = extensions["tableprims"].as_object().unwrap();
+    for name in ours.keys() {
+        assert!(
+            ["tool", "backend", "limits", "policy_digest"].contains(&name.as_str()),
+            "{name}"
+        );
+    }
+    assert_eq!(ours["tool"]["name"], "tablebolt");
+    assert_eq!(ours["backend"]["name"], "rust_xlsxwriter");
+    // The namespaces are at depth 3 of the document; `extensions` at 2.
+    let mut values = 0;
+    let deepest = measure(&result["extensions"], 2, &mut values);
+    assert!(deepest <= 6, "{deepest}");
+    assert!(values <= 256, "{values}");
+    // Every count and length is one a reader of any JSON library reads
+    // exactly.
+    let mut all = 0;
+    measure(&result["inputs"], 2, &mut all);
+    if ok {
+        measure(&result["output"], 2, &mut all);
+        measure(&result["counts"], 2, &mut all);
+    } else {
+        measure(&result["refusal"], 2, &mut all);
+    }
+}
+
 #[test]
 fn a_completed_run_publishes_the_workbook_and_a_matching_result() {
     let case = Case::new("ok", SCHEMA, POLICY, ROWS);
@@ -115,7 +219,8 @@ fn a_completed_run_publishes_the_workbook_and_a_matching_result() {
         ]
     );
     let result = case.result();
-    assert_eq!(result["format"], "tableprims.result/0");
+    assert_eq!(result["format"], "tabular-exchange.result/0");
+    assert_eq!(result["contract"], "tabular-exchange/0.1.0");
     assert_eq!(result["status"], "ok");
     assert_eq!(result["run_id"], "case-0001");
     assert!(result.get("refusal").is_none());
@@ -123,7 +228,11 @@ fn a_completed_run_publishes_the_workbook_and_a_matching_result() {
     assert!(fs::read(case.dir.join("out.xlsx"))
         .unwrap()
         .starts_with(b"PK"));
-    assert_eq!(result["inputs"]["rows"], sum(&case.dir.join("rows.ndjson")));
+    assert_eq!(
+        result["inputs"]["source"],
+        sum(&case.dir.join("rows.ndjson"))
+    );
+    assert!(result["inputs"].get("rows").is_none());
     assert_eq!(
         result["inputs"]["schema"],
         sum(&case.dir.join("schema.json"))
@@ -132,14 +241,27 @@ fn a_completed_run_publishes_the_workbook_and_a_matching_result() {
         result["inputs"]["policy"],
         sum(&case.dir.join("policy.json"))
     );
-    assert_eq!(result["tool"]["name"], "tablebolt");
-    assert_eq!(result["backend"]["version"], "0.102.0");
+    // Implementation members are under the extension namespace and
+    // nowhere else.
+    for moved in ["tool", "backend", "limits", "policy_digest"] {
+        assert!(result.get(moved).is_none(), "{moved}");
+    }
+    let ours = &result["extensions"]["tableprims"];
+    assert_eq!(ours["tool"]["name"], "tablebolt");
+    assert_eq!(ours["tool"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(ours["tool"]["library"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(ours["backend"]["version"], "0.102.0");
     assert_eq!(result["profile"]["id"], "xlsx-write/r1");
-    assert_eq!(result["policy_digest"].as_str().unwrap().len(), 64);
+    assert_eq!(result["profile"]["sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(ours["policy_digest"].as_str().unwrap().len(), 64);
     assert_eq!(
-        result["limits"],
+        ours["limits"],
         serde_json::json!({"max_rows": 1_048_575, "max_line_bytes": 1_048_576, "max_empty_ranges": 65_536})
     );
+    // The namespace object, four members, and the eight values they hold.
+    let mut values = 0;
+    assert_eq!(measure(&result["extensions"], 2, &mut values), 4);
+    assert_eq!(values, 13);
     assert_eq!(
         result["counts"],
         serde_json::json!({"rows": 3, "columns": [
@@ -275,9 +397,12 @@ fn refusals_carry_a_category_a_rule_and_a_location() {
     ] {
         let result = refused(name, SCHEMA, POLICY, &rows(row), exit, "refused", refusal);
         // The rows were not read to the end, so no digest is claimed.
-        assert!(result["inputs"].get("rows").is_none(), "{name}");
+        assert!(result["inputs"].get("source").is_none(), "{name}");
         assert_eq!(
-            result["policy_digest"].as_str().unwrap().len(),
+            result["extensions"]["tableprims"]["policy_digest"]
+                .as_str()
+                .unwrap()
+                .len(),
             64,
             "{name}"
         );
@@ -338,6 +463,455 @@ fn refusals_carry_a_category_a_rule_and_a_location() {
         "refused",
         json!({"category": "invalid-input", "rule": "policy-member-unknown"}),
     );
+    refused(
+        "policy-member-top",
+        SCHEMA,
+        &POLICY.replace("\"extensions\"", "\"extra\":1,\"extensions\""),
+        ROWS,
+        61,
+        "refused",
+        json!({"category": "invalid-input", "rule": "policy-member-unknown"}),
+    );
+}
+
+/// A policy with `extensions` as its extensions member.
+fn policy_extended(extensions: &str) -> String {
+    format!(
+        r#"{{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","extensions":{extensions}}}"#
+    )
+}
+
+#[test]
+fn earlier_format_identifiers_are_refused() {
+    use serde_json::json;
+    let case = Case::new(
+        "old-schema",
+        &SCHEMA.replace("tabular-exchange.schema/0", "tableprims.schema/0"),
+        POLICY,
+        ROWS,
+    );
+    assert_eq!(case.run(&[]).status.code(), Some(61));
+    let result = case.result();
+    assert_eq!(result["status"], "refused");
+    assert_eq!(
+        result["refusal"],
+        json!({"category": "invalid-input", "rule": "schema-format-unsupported"})
+    );
+    for (name, policy) in [
+        (
+            "old-policy",
+            POLICY.replace("tabular-exchange.policy/0", "tableprims.policy/0"),
+        ),
+        (
+            "old-policy-shape",
+            String::from(
+                r#"{"format":"tableprims.policy/0","exact_numbers":"require-exact","sheet":"Data"}"#,
+            ),
+        ),
+        (
+            "result-format-as-policy",
+            POLICY.replace("tabular-exchange.policy/0", "tabular-exchange.result/0"),
+        ),
+        (
+            "later-policy",
+            POLICY.replace("tabular-exchange.policy/0", "tabular-exchange.policy/1"),
+        ),
+    ] {
+        refused(
+            name,
+            SCHEMA,
+            &policy,
+            ROWS,
+            61,
+            "refused",
+            json!({"category": "invalid-input", "rule": "policy-format-unsupported"}),
+        );
+    }
+}
+
+#[test]
+fn policy_extensions_are_bounded_and_named() {
+    use serde_json::json;
+    let invalid = |rule: &str| json!({"category": "invalid-input", "rule": rule});
+    let nulls = |count: usize| vec!["null"; count].join(",");
+    let cases: Vec<(&str, String, &str)> = vec![
+        // Settings of the destination outside the extension namespace.
+        (
+            "top-sheet",
+            String::from(
+                r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","sheet":"Data"}"#,
+            ),
+            "policy-member-unknown",
+        ),
+        (
+            "top-limits",
+            POLICY.replace(
+                "\"extensions\"",
+                "\"limits\":{\"max_rows\":2},\"extensions\"",
+            ),
+            "policy-member-unknown",
+        ),
+        // A namespace this program does not implement.
+        (
+            "other-namespace",
+            policy_extended(r#"{"example":{"sheet":"Data"}}"#),
+            "policy-extension-unsupported",
+        ),
+        (
+            "second-namespace",
+            policy_extended(r#"{"tableprims":{"sheet":"Data"},"example-tool":{}}"#),
+            "policy-extension-unsupported",
+        ),
+        // The bounds, each just past its limit; they are judged before the
+        // namespace is looked up.
+        (
+            "namespaces",
+            policy_extended(
+                r#"{"tableprims":{"sheet":"Data"},"b":{},"c":{},"d":{},"e":{},"f":{},"g":{},"h":{},"i":{}}"#,
+            ),
+            "policy-member-invalid",
+        ),
+        (
+            "values",
+            policy_extended(&format!(r#"{{"example":{{"a":[{}]}}}}"#, nulls(255))),
+            "policy-member-invalid",
+        ),
+        (
+            "string",
+            policy_extended(&format!(
+                r#"{{"tableprims":{{"sheet":"{}"}}}}"#,
+                "s".repeat(257)
+            )),
+            "policy-member-invalid",
+        ),
+        (
+            "name",
+            policy_extended(&format!(r#"{{"example":{{"{}":null}}}}"#, "k".repeat(257))),
+            "policy-member-invalid",
+        ),
+        (
+            "number",
+            policy_extended(
+                r#"{"tableprims":{"sheet":"Data","limits":{"max_rows":9007199254740992}}}"#,
+            ),
+            "policy-member-invalid",
+        ),
+        (
+            "huge-number",
+            policy_extended(
+                r#"{"example":{"a":123456789012345678901234567890123456789012345678901234567890}}"#,
+            ),
+            "policy-member-invalid",
+        ),
+        (
+            "namespace-name",
+            policy_extended(r#"{"Tableprims":{"sheet":"Data"}}"#),
+            "policy-member-invalid",
+        ),
+        (
+            "namespace-value",
+            policy_extended(r#"{"tableprims":"Data"}"#),
+            "policy-not-an-object",
+        ),
+        (
+            "extensions-value",
+            policy_extended(r#"["tableprims"]"#),
+            "policy-not-an-object",
+        ),
+        (
+            "depth",
+            policy_extended(r#"{"example":{"a":{"b":{"c":{"d":{}}}}}}"#),
+            "policy-malformed",
+        ),
+        // Content of this program's namespace.
+        (
+            "namespace-member",
+            policy_extended(r#"{"tableprims":{"sheet":"Data","colour":"red"}}"#),
+            "policy-member-unknown",
+        ),
+        (
+            "sheet-type",
+            policy_extended(r#"{"tableprims":{"sheet":7}}"#),
+            "policy-member-invalid",
+        ),
+        (
+            "sheet-reserved",
+            policy_extended(r#"{"tableprims":{"sheet":"_TablePrims"}}"#),
+            "policy-member-invalid",
+        ),
+    ];
+    for (name, policy, rule) in cases {
+        let result = refused(name, SCHEMA, &policy, ROWS, 61, "refused", invalid(rule));
+        // The policy was read to its end, and was not resolved.
+        assert_eq!(result["inputs"]["policy"]["bytes"], policy.len(), "{name}");
+        let ours = &result["extensions"]["tableprims"];
+        assert!(
+            ours.get("policy_digest").is_none() && ours.get("limits").is_none(),
+            "{name}"
+        );
+    }
+    // Each bound at its limit is read: the namespace is then looked up, or
+    // the policy runs.
+    for (name, policy, rule) in [
+        (
+            "namespaces-at",
+            policy_extended(
+                r#"{"tableprims":{"sheet":"Data"},"b":{},"c":{},"d":{},"e":{},"f":{},"g":{},"h":{}}"#,
+            ),
+            "policy-extension-unsupported",
+        ),
+        (
+            "values-at",
+            policy_extended(&format!(r#"{{"example":{{"a":[{}]}}}}"#, nulls(254))),
+            "policy-extension-unsupported",
+        ),
+        (
+            "name-at",
+            policy_extended(&format!(
+                r#"{{"example":{{"{}":"{}"}}}}"#,
+                "k".repeat(256),
+                "v".repeat(256)
+            )),
+            "policy-extension-unsupported",
+        ),
+        (
+            "number-at",
+            policy_extended(r#"{"example":{"a":9007199254740991}}"#),
+            "policy-extension-unsupported",
+        ),
+        (
+            "depth-at",
+            policy_extended(r#"{"example":{"a":{"b":{"c":{}}}}}"#),
+            "policy-extension-unsupported",
+        ),
+    ] {
+        refused(name, SCHEMA, &policy, ROWS, 61, "refused", invalid(rule));
+    }
+    // A limit at the largest number a document may carry is read, and is
+    // then above what the profile supports.
+    refused(
+        "number-at-ours",
+        SCHEMA,
+        &policy_extended(
+            r#"{"tableprims":{"sheet":"Data","limits":{"max_rows":9007199254740991}}}"#,
+        ),
+        ROWS,
+        60,
+        "refused",
+        json!({"category": "resource-limit", "rule": "limit-above-profile"}),
+    );
+}
+
+#[test]
+fn a_policy_that_names_no_sheet_is_refused_by_the_destination() {
+    use serde_json::json;
+    for (name, policy) in [
+        (
+            "no-extensions",
+            String::from(
+                r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact"}"#,
+            ),
+        ),
+        ("empty-extensions", policy_extended("{}")),
+        ("empty-namespace", policy_extended(r#"{"tableprims":{}}"#)),
+        (
+            "limits-only",
+            policy_extended(r#"{"tableprims":{"limits":{"max_rows":2}}}"#),
+        ),
+    ] {
+        let result = refused(
+            name,
+            SCHEMA,
+            &policy,
+            ROWS,
+            62,
+            "refused",
+            json!({"category": "unsupported-representation", "rule": "sheet-name-missing"}),
+        );
+        assert_eq!(result["inputs"]["policy"]["bytes"], policy.len(), "{name}");
+    }
+}
+
+#[test]
+fn numbers_in_documents_and_rows_are_classified() {
+    use serde_json::json;
+    // A quantize scale no decimal can have is an invalid member; one that
+    // only this column cannot have does not fit the schema.
+    for scale in ["39", "255", "256", "18446744073709551616"] {
+        refused(
+            &format!("scale-{scale}"),
+            SCHEMA,
+            &POLICY.replace("\"scale\":2", &format!("\"scale\":{scale}")),
+            ROWS,
+            61,
+            "refused",
+            json!({"category": "invalid-input", "rule": "policy-member-invalid"}),
+        );
+    }
+    for scale in ["13", "38"] {
+        refused(
+            &format!("scale-{scale}"),
+            SCHEMA,
+            &POLICY.replace("\"scale\":2", &format!("\"scale\":{scale}")),
+            ROWS,
+            60,
+            "refused",
+            json!({"category": "schema-mismatch", "rule": "quantize-scale-too-large"}),
+        );
+    }
+    // An integer too large for its member is an invalid member, however
+    // large; a number outside the document grammar is malformed.
+    for (name, precision, rule) in [
+        ("precision-39", "39", "schema-member-invalid"),
+        (
+            "precision-u64",
+            "18446744073709551615",
+            "schema-member-invalid",
+        ),
+        (
+            "precision-past-u64",
+            "18446744073709551616",
+            "schema-member-invalid",
+        ),
+        (
+            "precision-huge",
+            "1000000000000000000000000000000000000000000000000",
+            "schema-member-invalid",
+        ),
+        ("precision-fraction", "12.0", "schema-malformed"),
+        ("precision-exponent", "1e1", "schema-malformed"),
+        ("precision-negative", "-12", "schema-malformed"),
+        ("precision-leading-zero", "012", "schema-malformed"),
+    ] {
+        let case = Case::new(
+            name,
+            &SCHEMA.replace("\"precision\":12", &format!("\"precision\":{precision}")),
+            POLICY,
+            ROWS,
+        );
+        assert_eq!(case.run(&[]).status.code(), Some(61), "{name}");
+        assert_eq!(
+            case.result()["refusal"],
+            json!({"category": "invalid-input", "rule": rule}),
+            "{name}"
+        );
+    }
+    // In a row, a JSON number is forbidden; a token that only begins like a
+    // number is not JSON.
+    let rows = |element: &str| {
+        format!("[\"INV-1\",\"3\",\"12.3450\",true]\n[\"INV-2\",{element},null,null]\n")
+    };
+    for (at, (element, rule)) in [
+        ("7", "numeric-literal"),
+        ("-0", "numeric-literal"),
+        ("1.5", "numeric-literal"),
+        ("1e3", "numeric-literal"),
+        ("-", "malformed-row"),
+        ("01", "malformed-row"),
+        ("1.", "malformed-row"),
+        ("1e", "malformed-row"),
+        ("1x", "malformed-row"),
+        ("+1", "malformed-row"),
+        (".5", "malformed-row"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        refused(
+            &format!("element-{at}"),
+            SCHEMA,
+            POLICY,
+            &rows(element),
+            61,
+            "refused",
+            json!({"category": "invalid-input", "rule": rule, "row": 1}),
+        );
+    }
+}
+
+#[test]
+fn timestamps_are_judged_well_formed_before_they_are_compared_with_the_column() {
+    use serde_json::json;
+    let schema = r#"{"format":"tabular-exchange.schema/0","columns":[
+ {"id":"seen","label":"Seen","type":"local-timestamp","fraction":0,"nullable":true},
+ {"id":"sent","label":"Sent","type":"offset-timestamp","fraction":3,"nullable":true}]}"#;
+    let policy = policy_extended(r#"{"tableprims":{"sheet":"Data"}}"#);
+    for (name, row, exit, category, rule, column) in [
+        (
+            "local-with-offset",
+            r#"["2026-11-19T08:30:00Z",null]"#,
+            60,
+            "schema-mismatch",
+            "temporal-offset-mismatch",
+            "seen",
+        ),
+        (
+            "offset-without-offset",
+            r#"[null,"2026-11-19T08:30:00.123"]"#,
+            60,
+            "schema-mismatch",
+            "temporal-offset-mismatch",
+            "sent",
+        ),
+        (
+            "point-without-digit",
+            r#"["2026-11-19T08:30:00.",null]"#,
+            61,
+            "invalid-input",
+            "temporal-malformed",
+            "seen",
+        ),
+        (
+            "bad-offset-and-fraction",
+            r#"[null,"2026-11-19T08:30:00.12+99:99"]"#,
+            61,
+            "invalid-input",
+            "temporal-invalid-offset",
+            "sent",
+        ),
+        (
+            "negative-zero-and-fraction",
+            r#"[null,"2026-11-19T08:30:00.12-00:00"]"#,
+            61,
+            "invalid-input",
+            "temporal-negative-zero-offset",
+            "sent",
+        ),
+        (
+            "local-bad-offset",
+            r#"["2026-11-19T08:30:00+24:00",null]"#,
+            61,
+            "invalid-input",
+            "temporal-invalid-offset",
+            "seen",
+        ),
+        (
+            "local-negative-zero",
+            r#"["2026-11-19T08:30:00-00:00",null]"#,
+            61,
+            "invalid-input",
+            "temporal-negative-zero-offset",
+            "seen",
+        ),
+        (
+            "fraction-before-offset",
+            r#"[null,"2026-11-19T08:30:00"]"#,
+            60,
+            "schema-mismatch",
+            "temporal-fraction-mismatch",
+            "sent",
+        ),
+    ] {
+        refused(
+            name,
+            schema,
+            &policy,
+            &format!("{row}\n"),
+            exit,
+            "refused",
+            json!({"category": category, "rule": rule, "row": 0, "column": column}),
+        );
+    }
 }
 
 #[test]
@@ -355,6 +929,10 @@ fn document_and_file_failures_are_classified() {
         result["refusal"],
         json!({"category": "unsupported-type", "rule": "schema-type-unsupported"})
     );
+    // Nothing was resolved, so the extension carries the tool and the
+    // workbook writer only.
+    let ours = result["extensions"]["tableprims"].as_object().unwrap();
+    assert_eq!(ours.keys().collect::<Vec<_>>(), ["backend", "tool"]);
     assert!(result.get("policy_digest").is_none() && result.get("limits").is_none());
 
     let case = Case::new("schema-utf8", SCHEMA, POLICY, ROWS);
@@ -376,9 +954,11 @@ fn document_and_file_failures_are_classified() {
             result["refusal"],
             json!({"category": "io-failure", "rule": rule})
         );
-        assert!(result["inputs"]
-            .get(missing.split('.').next().unwrap())
-            .is_none());
+        let input = match missing {
+            "rows.ndjson" => "source",
+            other => other.split('.').next().unwrap(),
+        };
+        assert!(result["inputs"].get(input).is_none());
         assert!(!case.dir.join("out.xlsx").exists());
     }
 }

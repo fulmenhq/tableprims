@@ -5,13 +5,20 @@
 //! Each line is one JSON array holding one scalar per column: `null`,
 //! `true`, `false` or a string. Exact numbers, dates and timestamps travel
 //! as strings; a bare JSON number is refused, never read through binary
-//! floating point. Nested arrays and objects are refused. The format is
-//! provisional and may change before the first release.
+//! floating point. Nested arrays and objects are refused. The encoding is
+//! the rows encoding of the Tabular Exchange Standard, contract revision
+//! `tabular-exchange/0.1.0`, published in fulmenhq/crucible.
 //!
 //! Input is UTF-8 without a byte order mark. Lines end with LF or CRLF and
 //! the final line may omit its terminator. A blank line is an error, not a
 //! skipped row. An empty input holds zero rows. Whitespace inside a line is
 //! limited to spaces and tabs between tokens.
+//!
+//! A cell that begins with `-` or a digit is judged by its token: the
+//! characters up to the next space, tab, comma, `]` or the end of the line.
+//! A token that is a JSON number is [`LineError::NumericLiteral`]: the line
+//! is JSON and the value must be quoted. Any other token, such as `01`, `1.`
+//! or `1x`, is [`LineError::Malformed`]: the line is not JSON.
 //!
 //! The parser is written here rather than taken from a JSON library so that
 //! every refusal is explicit and no numeric conversion can occur.
@@ -19,7 +26,7 @@
 use core::fmt;
 use std::io::{self, BufRead, Read};
 
-use crate::json::{Cursor, StringError};
+use crate::json::{is_number, Cursor, StringError};
 use crate::table::Scalar;
 
 /// One cell of a row as read from a line.
@@ -55,7 +62,8 @@ pub enum LineError {
     Blank,
     /// The line is not a JSON array.
     NotAnArray,
-    /// The array or the text around it is not well-formed.
+    /// The array or the text around it is not well-formed, including a
+    /// cell that begins like a number and is not a JSON number.
     Malformed,
     /// A cell is a bare JSON number.
     NumericLiteral,
@@ -169,7 +177,18 @@ impl Parser<'_> {
             Some(b'n') => self.literal("null", Cell::Null),
             Some(b't') => self.literal("true", Cell::Boolean(true)),
             Some(b'f') => self.literal("false", Cell::Boolean(false)),
-            Some(b'-' | b'0'..=b'9') => Err(LineError::NumericLiteral),
+            Some(b'-' | b'0'..=b'9') => {
+                let rest = self.cursor.rest();
+                let end = rest
+                    .iter()
+                    .position(|byte| matches!(byte, b' ' | b'\t' | b',' | b']'))
+                    .unwrap_or(rest.len());
+                if is_number(&rest[..end]) {
+                    Err(LineError::NumericLiteral)
+                } else {
+                    Err(LineError::Malformed)
+                }
+            }
             Some(b'[' | b'{') => Err(LineError::NestedValue),
             _ => Err(LineError::Malformed),
         }
@@ -358,6 +377,52 @@ mod tests {
     fn bare_numbers_are_refused() {
         for line in ["[1]", "[-1]", "[0.5]", "[\"a\", 12]", "[1e5]"] {
             assert_eq!(parse_line(line), Err(LineError::NumericLiteral), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_number_is_reported_whatever_follows_it() {
+        for line in [
+            "[0]",
+            "[-0]",
+            "[1.5]",
+            "[1e3]",
+            "[1E+3]",
+            "[1 ,null]",
+            "[1\t]",
+            "[1",
+            "[1,",
+            "[1 2]",
+            "[-1.5e-7,\"a\"",
+            "[null, 12",
+        ] {
+            assert_eq!(parse_line(line), Err(LineError::NumericLiteral), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn a_cell_that_begins_like_a_number_and_is_not_one_is_malformed() {
+        for line in [
+            "[-]",
+            "[01]",
+            "[1.]",
+            "[1e]",
+            "[1x]",
+            "[-a]",
+            "[00]",
+            "[1e+]",
+            "[1.5.2]",
+            "[0x10]",
+            "[1\"a\"]",
+            "[1[]",
+            "[1{}]",
+            "[-",
+            "[1.",
+            "[null, 1x]",
+            "[1é]",
+            "[12:30]",
+        ] {
+            assert_eq!(parse_line(line), Err(LineError::Malformed), "{line:?}");
         }
     }
 

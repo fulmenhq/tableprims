@@ -9,8 +9,12 @@ Typed tabular conversion library, with a thin command-line tool named
 
 This repository is experimental and has made no release. One conversion is
 implemented: `tablebolt xlsx write` writes typed rows to an XLSX workbook; see
-[docs/xlsx-write.md](docs/xlsx-write.md). Its formats are provisional and may
-change before the first release. Workbooks have been checked by reading them
+[docs/xlsx-write.md](docs/xlsx-write.md). Its rows, schema, policy and result
+follow the Tabular Exchange Standard, contract revision
+`tabular-exchange/0.1.0`, published in
+[fulmenhq/crucible](https://github.com/fulmenhq/crucible); the workbook layout
+and the members under the `tableprims` extension namespace are provisional and
+may change before the first release. Workbooks have been checked by reading them
 back with an independent parser, not by opening them in a spreadsheet
 application.
 

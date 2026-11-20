@@ -6,8 +6,10 @@
 //! would resolve silently: a repeated object key (compared after string
 //! decoding), an unpaired surrogate, and any number other than a
 //! non-negative integer written without sign, fraction, exponent or leading
-//! zero. No number is read through binary floating point. Nesting depth is
-//! bounded by the caller.
+//! zero. No number is read through binary floating point. An integer above
+//! `u64::MAX` is well formed and is read as [`Json::BigInteger`], so that a
+//! caller can refuse it as out of range rather than as malformed. Nesting
+//! depth is bounded by the caller.
 //!
 //! The reader is written here rather than taken from a JSON library so that
 //! every refusal is explicit.
@@ -29,6 +31,9 @@ pub enum Json {
     Boolean(bool),
     /// A non-negative integer.
     Integer(u64),
+    /// A non-negative integer above `u64::MAX`. It is spelled as an integer
+    /// must be; its value is not kept.
+    BigInteger,
     /// A string, unescaped.
     String(String),
     /// An array, in order.
@@ -52,8 +57,7 @@ pub enum JsonError {
     InvalidString,
     /// An object repeats a key.
     DuplicateKey,
-    /// A number is negative, fractional, written with an exponent or a
-    /// leading zero, or too large.
+    /// A number is negative, fractional or written with an exponent.
     UnsupportedNumber,
     /// Arrays and objects are nested more deeply than the limit.
     TooDeep,
@@ -108,6 +112,11 @@ impl<'a> Cursor<'a> {
 
     pub(crate) fn advance(&mut self) {
         self.at += 1;
+    }
+
+    /// The bytes from the current position to the end of the text.
+    pub(crate) fn rest(&self) -> &'a [u8] {
+        &self.bytes()[self.at..]
     }
 
     /// Skips bytes for which `is_whitespace` holds.
@@ -270,8 +279,9 @@ fn value(cursor: &mut Cursor<'_>, depth_left: usize) -> Result<Json, JsonError> 
     }
 }
 
-/// Reads `0|[1-9][0-9]*` as a `u64`. Any other well-formed JSON number is
-/// unsupported; anything else is malformed.
+/// Reads `0|[1-9][0-9]*` as a `u64`, or as [`Json::BigInteger`] when it does
+/// not fit one. Any other well-formed JSON number is unsupported; anything
+/// else is malformed.
 fn number(cursor: &mut Cursor<'_>) -> Result<Json, JsonError> {
     let negative = cursor.peek() == Some(b'-');
     if negative {
@@ -318,9 +328,45 @@ fn number(cursor: &mut Cursor<'_>) -> Result<Json, JsonError> {
         }
     }
     match value {
-        Some(value) if plain => Ok(Json::Integer(value)),
-        _ => Err(JsonError::UnsupportedNumber),
+        _ if !plain => Err(JsonError::UnsupportedNumber),
+        Some(value) => Ok(Json::Integer(value)),
+        None => Ok(Json::BigInteger),
     }
+}
+
+/// Whether `token` is a number in the grammar of RFC 8259:
+/// `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`.
+pub(crate) fn is_number(token: &[u8]) -> bool {
+    fn digits(bytes: &[u8]) -> usize {
+        bytes.iter().take_while(|b| b.is_ascii_digit()).count()
+    }
+    let mut rest = token.strip_prefix(b"-").unwrap_or(token);
+    match digits(rest) {
+        0 => return false,
+        1 => {}
+        _ if rest[0] == b'0' => return false,
+        _ => {}
+    }
+    rest = &rest[digits(rest)..];
+    if let Some(fraction) = rest.strip_prefix(b".") {
+        let run = digits(fraction);
+        if run == 0 {
+            return false;
+        }
+        rest = &fraction[run..];
+    }
+    if let [b'e' | b'E', exponent @ ..] = rest {
+        let exponent = match exponent {
+            [b'+' | b'-', unsigned @ ..] => unsigned,
+            unsigned => unsigned,
+        };
+        let run = digits(exponent);
+        if run == 0 {
+            return false;
+        }
+        rest = &exponent[run..];
+    }
+    rest.is_empty()
 }
 
 /// Reads array elements; the opening bracket is already consumed.
@@ -479,11 +525,58 @@ mod tests {
             "1E3",
             "1e+3",
             "0.5e-2",
-            "18446744073709551616",
-            "184467440737095516150",
+            "-18446744073709551616",
+            "18446744073709551616.0",
+            "18446744073709551616e0",
             "[1, -2]",
         ] {
             assert_eq!(parse(text), Err(JsonError::UnsupportedNumber), "{text}");
+        }
+    }
+
+    #[test]
+    fn integers_too_large_to_hold_are_well_formed() {
+        for text in [
+            "18446744073709551616",
+            "184467440737095516150",
+            "99999999999999999999999999999999999999999999999999",
+        ] {
+            assert_eq!(parse(text), Ok(Json::BigInteger), "{text}");
+        }
+        assert_eq!(
+            parse(r#"{"a": [18446744073709551616]}"#).unwrap(),
+            Json::Object(vec![("a".to_owned(), Json::Array(vec![Json::BigInteger]))])
+        );
+        // A leading zero is malformed however long the number is.
+        assert_eq!(parse("018446744073709551616"), Err(JsonError::Malformed));
+    }
+
+    #[test]
+    fn number_tokens_follow_the_json_grammar() {
+        for token in [
+            "0",
+            "-0",
+            "1",
+            "-1",
+            "10",
+            "1.5",
+            "0.0",
+            "-0.5",
+            "1e3",
+            "1E3",
+            "1e+3",
+            "1e-3",
+            "1.5e10",
+            "0e0",
+            "123456789012345678901234567890",
+        ] {
+            assert!(is_number(token.as_bytes()), "{token}");
+        }
+        for token in [
+            "", "-", "01", "-01", "00", "1.", "1.e3", ".5", "1e", "1e+", "1e-", "1x", "1.5x",
+            "1e3x", "--1", "+1", "1-", "0x10", "1 ", "1.2.3", "1e3e4", "-a", "١",
+        ] {
+            assert!(!is_number(token.as_bytes()), "{token}");
         }
     }
 

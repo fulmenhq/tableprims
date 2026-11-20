@@ -7,6 +7,11 @@
 //! then is the result file written the same way. A conversion is complete
 //! only when the result file exists, says `ok` and its digest and length
 //! match the workbook.
+//!
+//! The schema, the policy and the result are the documents of the Tabular
+//! Exchange Standard, contract revision `tabular-exchange/0.1.0`, published
+//! in fulmenhq/crucible. What this program adds to a policy or a result is
+//! carried under the `tableprims` extension namespace.
 
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
@@ -14,7 +19,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use serde_json::{json, Map, Value};
-use tableprims::documents::{parse_policy, parse_schema, DocumentError, ExactNumberPolicy};
+use tableprims::documents::{
+    parse_policy, parse_schema, DocumentError, ExactNumberPolicy, EXTENSION_NAMESPACE,
+};
 use tableprims_xlsx::{Category, ErrorKind, Outcome, Plan, ResolvedLimits, WriteError};
 
 use crate::digest::{self, HashingReader, HashingWriter, Sum};
@@ -22,8 +29,11 @@ use crate::identity;
 use crate::publish::{directory, links, same_entry, Pending};
 
 /// Format identifier of the result file.
-pub(crate) const RESULT_FORMAT: &str = "tableprims.result/0";
-/// Format identifier of the object the policy digest covers.
+pub(crate) const RESULT_FORMAT: &str = "tabular-exchange.result/0";
+/// The contract revision a result is written to.
+pub(crate) const CONTRACT: &str = "tabular-exchange/0.1.0";
+/// Format identifier of the object the policy digest covers. The object is
+/// this program's own and is not a document of the contract.
 pub(crate) const RESOLVED_POLICY_FORMAT: &str = "tableprims.resolved-policy/0";
 /// Largest schema or policy document, in bytes.
 const MAX_DOCUMENT_BYTES: u64 = 16 << 20;
@@ -231,6 +241,7 @@ fn document_failure(rules: &DocumentRules, error: &DocumentError) -> Failure {
         ),
         DocumentError::Schema(_) => invalid("schema-columns-invalid"),
         DocumentError::DuplicateQuantize => invalid("policy-quantize-duplicate"),
+        DocumentError::UnsupportedExtension => invalid("policy-extension-unsupported"),
         _ => invalid(rules.other),
     }
 }
@@ -239,7 +250,7 @@ fn document_failure(rules: &DocumentRules, error: &DocumentError) -> Failure {
 /// file whether or not the run completes.
 #[derive(Default)]
 struct Report {
-    rows: Option<Sum>,
+    source: Option<Sum>,
     schema: Option<Sum>,
     policy: Option<Sum>,
     limits: Option<ResolvedLimits>,
@@ -280,7 +291,9 @@ fn profile_json() -> Value {
 }
 
 /// The policy a plan runs under with every default filled in, as the JSON
-/// object the policy digest covers. Quantize entries are in schema order.
+/// object the policy digest covers. It has the shape of a policy document,
+/// with this program's settings under its extension namespace, and adds the
+/// profile. Quantize entries are in schema order.
 pub(crate) fn resolved_policy(plan: &Plan) -> Value {
     let quantize: Vec<Value> = plan
         .schema()
@@ -300,8 +313,12 @@ pub(crate) fn resolved_policy(plan: &Plan) -> Value {
         "format": RESOLVED_POLICY_FORMAT,
         "exact_numbers": exact_name(plan.exact_numbers()),
         "quantize": quantize,
-        "sheet": plan.sheet(),
-        "limits": limits_json(plan.limits()),
+        "extensions": {
+            EXTENSION_NAMESPACE: {
+                "sheet": plan.sheet(),
+                "limits": limits_json(plan.limits()),
+            },
+        },
         "profile": profile_json(),
     })
 }
@@ -374,7 +391,7 @@ fn convert(files: &Files, token: &str, report: &mut Report) -> Result<Done, Fail
         .into_inner()
         .finish()
         .map_err(|error| read_failure(&ROWS, &error))?;
-    report.rows = Some(first.clone());
+    report.source = Some(first.clone());
 
     let (pending, file) = Pending::create(&files.output, token, "workbook")
         .map_err(|error| write_failure("output-create-failed", &error))?;
@@ -438,11 +455,13 @@ fn counts_json(outcome: &Outcome) -> Value {
     json!({ "rows": outcome.rows, "columns": columns })
 }
 
-fn result_json(run_id: &str, report: &Report, end: &Result<Done, Failure>) -> Value {
-    let mut result = Map::new();
-    result.insert("format".into(), json!(RESULT_FORMAT));
-    result.insert("run_id".into(), json!(run_id));
-    result.insert(
+/// What this program records about a run beyond the contract: the tool, the
+/// workbook writer and, once the policy has been resolved, the limits in
+/// effect and the digest of the resolved policy. It is a fixed, small set
+/// of members, well inside the bounds the contract sets on `extensions`.
+fn extension_json(report: &Report) -> Value {
+    let mut members = Map::new();
+    members.insert(
         "tool".into(),
         json!({
             "name": identity::BINARY_NAME,
@@ -450,17 +469,31 @@ fn result_json(run_id: &str, report: &Report, end: &Result<Done, Failure>) -> Va
             "library": tableprims::VERSION,
         }),
     );
-    result.insert(
+    members.insert(
         "backend".into(),
         json!({
             "name": tableprims_xlsx::BACKEND_NAME,
             "version": tableprims_xlsx::BACKEND_VERSION,
         }),
     );
+    if let Some(limits) = report.limits {
+        members.insert("limits".into(), limits_json(limits));
+    }
+    if let Some(digest) = &report.policy_digest {
+        members.insert("policy_digest".into(), json!(digest));
+    }
+    Value::Object(members)
+}
+
+fn result_json(run_id: &str, report: &Report, end: &Result<Done, Failure>) -> Value {
+    let mut result = Map::new();
+    result.insert("format".into(), json!(RESULT_FORMAT));
+    result.insert("contract".into(), json!(CONTRACT));
+    result.insert("run_id".into(), json!(run_id));
     result.insert("profile".into(), profile_json());
     let mut inputs = Map::new();
     for (name, sum) in [
-        ("rows", &report.rows),
+        ("source", &report.source),
         ("schema", &report.schema),
         ("policy", &report.policy),
     ] {
@@ -469,12 +502,10 @@ fn result_json(run_id: &str, report: &Report, end: &Result<Done, Failure>) -> Va
         }
     }
     result.insert("inputs".into(), Value::Object(inputs));
-    if let Some(digest) = &report.policy_digest {
-        result.insert("policy_digest".into(), json!(digest));
-    }
-    if let Some(limits) = report.limits {
-        result.insert("limits".into(), limits_json(limits));
-    }
+    result.insert(
+        "extensions".into(),
+        json!({ EXTENSION_NAMESPACE: extension_json(report) }),
+    );
     match end {
         Ok(done) => {
             result.insert("status".into(), json!("ok"));

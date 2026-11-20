@@ -31,8 +31,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a plain non-negative integer, under a nesting depth limit.
 - Library module `documents`: schema and policy documents as strict JSON
   objects with a format identifier. Unknown members are refused at every
-  depth. A policy names the exact-number representation, per-column
-  quantization, the destination sheet and optional limits.
+  depth. A policy names the exact-number representation and per-column
+  quantization, and carries the destination sheet and optional limits under
+  an extension namespace.
 - `tableprims-xlsx` crate: writes a typed table to one worksheet in two reads
   of the input, so each column's representation is fixed before the first
   cell. Exact numbers become numeric cells only when the stored value reads
@@ -67,6 +68,66 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The rows, schema, policy and result now follow the Tabular Exchange
+  Standard, contract revision `tabular-exchange/0.1.0`, published in
+  fulmenhq/crucible. See `docs/xlsx-write.md`.
+- Format identifiers are `tabular-exchange.schema/0`,
+  `tabular-exchange.policy/0` and `tabular-exchange.result/0`. The earlier
+  `tableprims.schema/0` and `tableprims.policy/0` are different formats and
+  are refused with `schema-format-unsupported` and
+  `policy-format-unsupported`; `tableprims.result/0` is no longer written.
+- Policy: `sheet` and `limits` are members of `extensions.tableprims`. At
+  the top level each is `policy-member-unknown`. A policy that carries any
+  other extension namespace is refused with `invalid-input`,
+  `policy-extension-unsupported`. `extensions` is held to the standard's
+  bounds before any namespace is looked up: 8 namespaces, 256 values,
+  strings and member names of 256 code points and numbers up to 2^53 - 1
+  (`policy-member-invalid`), a namespace pattern (`policy-member-invalid`)
+  and namespace values that are objects (`policy-not-an-object`). A policy
+  nests at most six deep instead of three; a schema still nests three.
+- Policy: `Policy::sheet` returns an `Option`. A policy that names no
+  worksheet is read, and `tablebolt xlsx write` then refuses it with
+  `unsupported-representation`, `sheet-name-missing` (exit code 62) instead
+  of `invalid-input`, `policy-member-missing`.
+- Result: required `"contract": "tabular-exchange/0.1.0"`. The source digest
+  is `inputs.source` instead of `inputs.rows`. `tool`, `backend`, `limits`
+  and `policy_digest` are under `extensions.tableprims` instead of at the top
+  level.
+- Result: the object that `policy_digest` covers carries `sheet` and
+  `limits` under `extensions.tableprims`, as a policy does, so every policy
+  digest differs from the one an earlier build computed. Its identifier
+  stays `tableprims.resolved-policy/0`; it is not a document of the
+  standard.
+- A quantize `scale` above 38 is `invalid-input`, `policy-member-invalid`
+  when the policy is read, instead of `schema-mismatch`,
+  `quantize-scale-too-large`. A scale of at most 38 that exceeds the column's
+  precision is still `quantize-scale-too-large`.
+- Library module `json`: an integer above `u64::MAX` that is spelled as a
+  plain non-negative integer is read as `Json::BigInteger` instead of being
+  refused as `UnsupportedNumber`. A schema or policy member holding one is
+  `schema-member-invalid` or `policy-member-invalid` instead of
+  `schema-malformed` or `policy-malformed`.
+- Library module `temporal`: a timestamp is judged as a well-formed
+  timestamp of either type before it is compared with the declared type.
+  New `TemporalError::OffsetMismatch`, reported as `schema-mismatch`,
+  `temporal-offset-mismatch`, for a local timestamp column given a value
+  with a well-formed offset (was `invalid-input`, `temporal-malformed`) and
+  an offset timestamp column given a value with none (was `invalid-input`,
+  `temporal-invalid-offset`). A point after the seconds with no digit is
+  `invalid-input`, `temporal-malformed` (was `temporal-fraction-mismatch`).
+  Trailing text that is not an offset is `temporal-invalid-offset`, and
+  `-00:00` is `temporal-negative-zero-offset`, in a column of either type
+  and whether or not the fraction fits (was `temporal-fraction-mismatch`
+  when the fraction did not fit, and `temporal-malformed` in a local
+  timestamp column when it did). The set of accepted timestamps is
+  unchanged.
+- Library module `ndjson`: a row element that begins with `-` or a digit and
+  is not a JSON number, such as `-`, `01`, `1.`, `1e` or `1x`, is
+  `invalid-input`, `malformed-row` instead of `numeric-literal`. A JSON
+  number is still `numeric-literal`.
+- `docs/xlsx-write.md` describes the two verdicts of matching a result to a
+  workbook, `output-agreement` and `requested-run-completed`, and that a
+  caller who omits `--run-id` cannot reach the second.
 - Library module `exact`: the grammar and the 38-digit bound are checked
   before the declared type. A misplaced or repeated decimal point is
   `Malformed`, more than 38 significant digits is `DigitLimitExceeded`, and

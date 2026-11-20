@@ -10,7 +10,7 @@ use tableprims::binary64::same_decimal_value;
 use tableprims::documents::{parse_policy, parse_schema};
 use tableprims_xlsx::{Category, ErrorKind, Outcome, Plan, Representation, WriteError};
 
-const SCHEMA: &str = r#"{"format":"tableprims.schema/0","columns":[
+const SCHEMA: &str = r#"{"format":"tabular-exchange.schema/0","columns":[
   {"id":"invoice","label":"Invoice","type":"string","nullable":true},
   {"id":"qty","label":"Qty","type":"integer","nullable":true},
   {"id":"amount","label":"Amount","type":"decimal","precision":12,"scale":4,"nullable":true},
@@ -19,8 +19,19 @@ const SCHEMA: &str = r#"{"format":"tableprims.schema/0","columns":[
   {"id":"seen","label":"Seen","type":"local-timestamp","fraction":3,"nullable":true},
   {"id":"sent","label":"Sent","type":"offset-timestamp","fraction":0,"nullable":true}]}"#;
 
+/// A policy for the sheet `Data`, with `extra` appended to its top-level
+/// members.
 fn policy(exact: &str, extra: &str) -> String {
-    format!(r#"{{"format":"tableprims.policy/0","exact_numbers":"{exact}","sheet":"Data"{extra}}}"#)
+    format!(
+        r#"{{"format":"tabular-exchange.policy/0","exact_numbers":"{exact}","extensions":{{"tableprims":{{"sheet":"Data"}}}}{extra}}}"#
+    )
+}
+
+/// A policy for the sheet `Data` under `limits`.
+fn policy_limits(exact: &str, limits: &str) -> String {
+    format!(
+        r#"{{"format":"tabular-exchange.policy/0","exact_numbers":"{exact}","extensions":{{"tableprims":{{"sheet":"Data","limits":{limits}}}}}}}"#
+    )
 }
 
 fn plan(schema: &str, policy: &str) -> Result<Plan, WriteError> {
@@ -242,7 +253,7 @@ fn the_metadata_worksheet_holds_the_records() {
     assert!(!sheet.contains("<v>") && !sheet.contains("<f"));
 }
 
-const NUMBERS: &str = r#"{"format":"tableprims.schema/0","columns":[
+const NUMBERS: &str = r#"{"format":"tabular-exchange.schema/0","columns":[
   {"id":"n","label":"N","type":"integer","nullable":true},
   {"id":"d","label":"D","type":"decimal","precision":38,"scale":3,"nullable":true}]}"#;
 
@@ -421,7 +432,7 @@ fn quantization_runs_before_the_representation_is_decided() {
 
 #[test]
 fn a_quantized_value_that_no_longer_fits_is_refused() {
-    let schema = r#"{"format":"tableprims.schema/0","columns":[
+    let schema = r#"{"format":"tabular-exchange.schema/0","columns":[
       {"id":"d","label":"D","type":"decimal","precision":3,"scale":1,"nullable":false}]}"#;
     let quantize = r#","quantize":[{"column":"d","scale":3,"rounding":"half-even"}]"#;
     let error = refusal(write(
@@ -436,7 +447,7 @@ fn a_quantized_value_that_no_longer_fits_is_refused() {
     assert_eq!((error.row(), error.column()), (Some(0), Some("d")));
 }
 
-const TEXT: &str = r#"{"format":"tableprims.schema/0","columns":[
+const TEXT: &str = r#"{"format":"tabular-exchange.schema/0","columns":[
   {"id":"a","label":"A","type":"string","nullable":true},
   {"id":"b","label":"B","type":"string","nullable":false}]}"#;
 
@@ -480,7 +491,7 @@ fn many_ranges_continue_across_records_and_the_cap_refuses() {
     assert!(empties[1][2].as_ref().unwrap().ends_with(",1198-1198"));
     assert_eq!(meta.last().unwrap()[1].as_deref(), Some("6"));
 
-    let capped = policy("require-exact", r#","limits":{"max_empty_ranges":599}"#);
+    let capped = policy_limits("require-exact", r#"{"max_empty_ranges":599}"#);
     let error = refusal(write(TEXT, &capped, &rows));
     assert_eq!(
         (error.category(), error.rule()),
@@ -492,13 +503,13 @@ fn many_ranges_continue_across_records_and_the_cap_refuses() {
 #[test]
 fn limits_are_enforced_and_bounded_by_the_profile() {
     let rows = "[\"p\",\"x\"]\n[\"q\",\"x\"]\n[\"r\",\"x\"]\n";
-    let capped = policy("require-exact", r#","limits":{"max_rows":2}"#);
+    let capped = policy_limits("require-exact", r#"{"max_rows":2}"#);
     let error = refusal(write(TEXT, &capped, rows));
     assert_eq!(
         (error.category(), error.rule(), error.row()),
         (Category::ResourceLimit, "too-many-rows", Some(2))
     );
-    let capped = policy("require-exact", r#","limits":{"max_line_bytes":8}"#);
+    let capped = policy_limits("require-exact", r#"{"max_line_bytes":8}"#);
     let error = refusal(write(TEXT, &capped, rows));
     assert_eq!(
         (error.category(), error.rule(), error.row()),
@@ -509,11 +520,7 @@ fn limits_are_enforced_and_bounded_by_the_profile() {
         r#"{"max_line_bytes":16777217}"#,
         r#"{"max_empty_ranges":65537}"#,
     ] {
-        let error = plan(
-            TEXT,
-            &policy("require-exact", &format!(r#","limits":{limits}"#)),
-        )
-        .unwrap_err();
+        let error = plan(TEXT, &policy_limits("require-exact", limits)).unwrap_err();
         assert_eq!(
             (error.category(), error.rule()),
             (Category::ResourceLimit, "limit-above-profile")
@@ -719,11 +726,155 @@ fn rows_that_do_not_fit_are_refused_with_a_location() {
     );
 }
 
+/// The refusal of one timestamp text in a one-column table.
+fn timestamp_refusal(kind: &str, fraction: u8, value: &str) -> (Category, &'static str) {
+    let schema = format!(
+        r#"{{"format":"tabular-exchange.schema/0","columns":[{{"id":"t","label":"T","type":"{kind}","fraction":{fraction},"nullable":false}}]}}"#
+    );
+    let error = refusal(write(
+        &schema,
+        &policy("text-always", ""),
+        &format!("[\"{value}\"]\n"),
+    ));
+    assert_eq!(
+        (error.row(), error.column()),
+        (Some(0), Some("t")),
+        "{value}"
+    );
+    (error.category(), error.rule())
+}
+
+#[test]
+fn timestamps_are_well_formed_before_they_fit_a_column() {
+    const LOCAL: &str = "local-timestamp";
+    const OFFSET: &str = "offset-timestamp";
+    const T: &str = "2026-11-19T08:30:00";
+    let mismatch = |rule| (Category::SchemaMismatch, rule);
+    let invalid = |rule| (Category::InvalidInput, rule);
+    let cases = [
+        // A well-formed timestamp of the other type.
+        (LOCAL, 0, "Z", mismatch("temporal-offset-mismatch")),
+        (LOCAL, 0, "+01:00", mismatch("temporal-offset-mismatch")),
+        (LOCAL, 0, "+00:00", mismatch("temporal-offset-mismatch")),
+        (LOCAL, 3, ".000Z", mismatch("temporal-offset-mismatch")),
+        (
+            LOCAL,
+            9,
+            ".123456789+05:30",
+            mismatch("temporal-offset-mismatch"),
+        ),
+        (OFFSET, 0, "", mismatch("temporal-offset-mismatch")),
+        (OFFSET, 3, ".123", mismatch("temporal-offset-mismatch")),
+        (
+            OFFSET,
+            9,
+            ".123456789",
+            mismatch("temporal-offset-mismatch"),
+        ),
+        // A point that no digit follows.
+        (LOCAL, 0, ".", invalid("temporal-malformed")),
+        (LOCAL, 3, ".", invalid("temporal-malformed")),
+        (OFFSET, 0, ".", invalid("temporal-malformed")),
+        (OFFSET, 3, ".Z", invalid("temporal-malformed")),
+        // Not an offset, in a value whose fraction does not fit either.
+        (LOCAL, 3, ",000", invalid("temporal-invalid-offset")),
+        (LOCAL, 3, ".12+24:00", invalid("temporal-invalid-offset")),
+        (OFFSET, 3, ".12+99:99", invalid("temporal-invalid-offset")),
+        (OFFSET, 3, "+99:99", invalid("temporal-invalid-offset")),
+        (LOCAL, 3, "-00:00", invalid("temporal-negative-zero-offset")),
+        (
+            OFFSET,
+            3,
+            ".12-00:00",
+            invalid("temporal-negative-zero-offset"),
+        ),
+        // Not an offset, in a local value whose fraction fits.
+        (LOCAL, 0, " ", invalid("temporal-invalid-offset")),
+        (LOCAL, 0, "+24:00", invalid("temporal-invalid-offset")),
+        (LOCAL, 0, "+05:60", invalid("temporal-invalid-offset")),
+        (LOCAL, 0, "z", invalid("temporal-invalid-offset")),
+        (LOCAL, 0, "-00:00", invalid("temporal-negative-zero-offset")),
+        (
+            LOCAL,
+            3,
+            ".123-00:00",
+            invalid("temporal-negative-zero-offset"),
+        ),
+        // The fraction is compared before the offset.
+        (LOCAL, 3, ".12Z", mismatch("temporal-fraction-mismatch")),
+        (OFFSET, 3, "", mismatch("temporal-fraction-mismatch")),
+        (LOCAL, 0, ".5", mismatch("temporal-fraction-mismatch")),
+        (OFFSET, 3, ".1234Z", mismatch("temporal-fraction-mismatch")),
+        (
+            LOCAL,
+            9,
+            ".1234567890",
+            mismatch("temporal-fraction-mismatch"),
+        ),
+        // A malformed or forbidden offset on an offset column that fits.
+        (OFFSET, 0, "+24:00", invalid("temporal-invalid-offset")),
+        (
+            OFFSET,
+            0,
+            "-00:00",
+            invalid("temporal-negative-zero-offset"),
+        ),
+    ];
+    for (kind, fraction, tail, expected) in cases {
+        assert_eq!(
+            timestamp_refusal(kind, fraction, &format!("{T}{tail}")),
+            expected,
+            "{kind} at {fraction}: {tail:?}"
+        );
+    }
+    // Calendar and clock are judged first, on either column.
+    for kind in [LOCAL, OFFSET] {
+        assert_eq!(
+            timestamp_refusal(kind, 3, "2026-02-30T08:30:00+24:00"),
+            invalid("temporal-invalid-date")
+        );
+        assert_eq!(
+            timestamp_refusal(kind, 3, "2026-11-19T24:00:00"),
+            invalid("temporal-invalid-time")
+        );
+        assert_eq!(
+            timestamp_refusal(kind, 3, "2026-11-19 08:30:00.000Z"),
+            invalid("temporal-malformed")
+        );
+    }
+}
+
+#[test]
+fn a_row_element_that_only_begins_like_a_number_is_not_a_numeric_literal() {
+    let exact = policy("require-exact", "");
+    for (element, rule) in [
+        ("1", "numeric-literal"),
+        ("-0", "numeric-literal"),
+        ("1.5", "numeric-literal"),
+        ("1e3", "numeric-literal"),
+        ("-", "malformed-row"),
+        ("01", "malformed-row"),
+        ("1.", "malformed-row"),
+        ("1e", "malformed-row"),
+        ("1x", "malformed-row"),
+    ] {
+        let error = refusal(write(TEXT, &exact, &format!("[\"a\",{element}]\n")));
+        assert_eq!(
+            (error.category(), error.rule(), error.row(), error.column()),
+            (Category::InvalidInput, rule, Some(0), None),
+            "{element}"
+        );
+    }
+    // A number is reported although the line is also broken after it.
+    let error = refusal(write(TEXT, &exact, "[\"a\",1\n"));
+    assert_eq!(error.rule(), "numeric-literal");
+}
+
 #[test]
 fn the_plan_refuses_what_a_workbook_cannot_hold() {
     for sheet in ["a/b", "x".repeat(32).as_str(), "'quoted'", "a[1]"] {
         let policy = format!(
-            r#"{{"format":"tableprims.policy/0","exact_numbers":"require-exact","sheet":"{sheet}"}}"#
+            r#"{{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","extensions":{{"tableprims":{{"sheet":"{sheet}"}}}}}}"#
         );
         let error = plan(TEXT, &policy).unwrap_err();
         assert_eq!(
@@ -735,9 +886,25 @@ fn the_plan_refuses_what_a_workbook_cannot_hold() {
             "{sheet}"
         );
     }
+    // A policy that names no worksheet is a complete policy that this
+    // destination cannot run.
+    for policy in [
+        r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact"}"#,
+        r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","extensions":{}}"#,
+        r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","extensions":{"tableprims":{}}}"#,
+        r#"{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","extensions":{"tableprims":{"limits":{"max_rows":2}}}}"#,
+    ] {
+        let error = plan(TEXT, policy).unwrap_err();
+        assert_eq!(
+            (error.category(), error.rule()),
+            (Category::UnsupportedRepresentation, "sheet-name-missing"),
+            "{policy}"
+        );
+        assert_eq!((error.row(), error.column()), (None, None), "{policy}");
+    }
     let long = "i".repeat(32_768);
     let schema = format!(
-        r#"{{"format":"tableprims.schema/0","columns":[{{"id":"{long}","label":"L","type":"string","nullable":true}}]}}"#
+        r#"{{"format":"tabular-exchange.schema/0","columns":[{{"id":"{long}","label":"L","type":"string","nullable":true}}]}}"#
     );
     let error = plan(&schema, &policy("require-exact", "")).unwrap_err();
     assert_eq!(

@@ -6,8 +6,9 @@
 //! with no offset, and a timestamp with a fixed offset from UTC. Values are
 //! held as validated fields exactly as written. Nothing here consults a
 //! clock, a host time zone or a time-zone database, and no value is
-//! converted to another offset. The grammar is provisional and may change
-//! before the first release.
+//! converted to another offset. The grammar and the order in which its
+//! rules are judged are those of the Tabular Exchange Standard, contract
+//! revision `tabular-exchange/0.1.0`, published in fulmenhq/crucible.
 //!
 //! Grammar:
 //!
@@ -20,6 +21,16 @@
 //! Hours run `00` to `23`; minutes and seconds `00` to `59`. Leap seconds,
 //! `24:00`, lowercase designators, a space separator and `-00:00` are
 //! refused. `Z` and `+00:00` are kept distinct as written.
+//!
+//! A timestamp is judged in two parts. First, whether the text is a
+//! well-formed timestamp of either type: shape, calendar, clock, a point
+//! followed by at least one digit, and an offset that is absent, `Z` or a
+//! signed `HH:MM` in range other than `-00:00`. Only a well-formed timestamp
+//! is then compared with the declared type: the width of its fraction
+//! ([`TemporalError::FractionMismatch`]) and then the presence of its offset
+//! ([`TemporalError::OffsetMismatch`]). A text with a malformed offset is
+//! therefore never reported as a fraction mismatch, and a well-formed value
+//! of the other timestamp type is never reported as malformed.
 
 use core::fmt;
 
@@ -40,12 +51,17 @@ pub enum TemporalError {
     InvalidTime,
     /// The fractional digits do not match the declared precision.
     FractionMismatch,
-    /// The offset is missing, malformed or out of range.
+    /// What follows the seconds and the fraction is not an offset: it is
+    /// neither `Z` nor a signed `HH:MM` in range.
     InvalidOffset,
     /// The offset is written `-00:00`.
     NegativeZeroOffset,
     /// A declared precision exceeds [`MAX_FRACTION_DIGITS`].
     InvalidPrecision,
+    /// A well-formed timestamp of the other type: a local timestamp was
+    /// expected and the value has an offset, or an offset timestamp was
+    /// expected and the value has none.
+    OffsetMismatch,
 }
 
 impl fmt::Display for TemporalError {
@@ -55,9 +71,12 @@ impl fmt::Display for TemporalError {
             Self::InvalidDate => "date is outside the calendar",
             Self::InvalidTime => "time of day is out of range",
             Self::FractionMismatch => "fractional digits do not match the declared precision",
-            Self::InvalidOffset => "offset is missing, malformed or out of range",
+            Self::InvalidOffset => "offset is malformed or out of range",
             Self::NegativeZeroOffset => "offset of zero must not be negative",
             Self::InvalidPrecision => "precision is out of range",
+            Self::OffsetMismatch => {
+                "offset is present where none is declared, or absent where one is"
+            }
         })
     }
 }
@@ -173,6 +192,82 @@ impl fmt::Display for Date {
     }
 }
 
+/// The parts of a well-formed timestamp of either type, before it is
+/// compared with a declared type.
+struct Parts<'a> {
+    date: Date,
+    hour: u8,
+    minute: u8,
+    second: u8,
+    /// The digits after the point, at least one; `None` without a point.
+    fraction: Option<&'a [u8]>,
+    /// The offset; `None` when nothing follows the seconds and the fraction.
+    offset: Option<Offset>,
+}
+
+impl<'a> Parts<'a> {
+    /// Judges whether `bytes` is a well-formed timestamp, with or without
+    /// an offset and with a fraction of any width.
+    fn parse(bytes: &'a [u8]) -> Result<Self, TemporalError> {
+        // Date, 'T' and HH:MM:SS occupy the first nineteen bytes.
+        if bytes.len() < 19 || bytes[10] != b'T' || bytes[13] != b':' || bytes[16] != b':' {
+            return Err(TemporalError::Malformed);
+        }
+        let date = Date::parse_bytes(&bytes[0..10])?;
+        let hour = digits(&bytes[11..13]).ok_or(TemporalError::Malformed)?;
+        let minute = digits(&bytes[14..16]).ok_or(TemporalError::Malformed)?;
+        let second = digits(&bytes[17..19]).ok_or(TemporalError::Malformed)?;
+        if hour > 23 || minute > 59 || second > 59 {
+            return Err(TemporalError::InvalidTime);
+        }
+        let tail = &bytes[19..];
+        // The fraction is a point and the longest run of digits after it.
+        let (fraction, rest) = match tail.strip_prefix(b".") {
+            Some(after) => {
+                let run = after.iter().take_while(|b| b.is_ascii_digit()).count();
+                if run == 0 {
+                    return Err(TemporalError::Malformed);
+                }
+                let (fraction, rest) = after.split_at(run);
+                (Some(fraction), rest)
+            }
+            None => (None, tail),
+        };
+        let offset = if rest.is_empty() {
+            None
+        } else {
+            Some(Offset::parse_bytes(rest)?)
+        };
+        Ok(Self {
+            date,
+            // Two digits each, checked against their ranges above.
+            hour: hour as u8,
+            minute: minute as u8,
+            second: second as u8,
+            fraction,
+            offset,
+        })
+    }
+
+    /// The date, time and fraction as a value of the declared precision.
+    fn local(&self, precision: FractionPrecision) -> Result<LocalTimestamp, TemporalError> {
+        let written = self.fraction.unwrap_or_default();
+        if written.len() != usize::from(precision.0) {
+            return Err(TemporalError::FractionMismatch);
+        }
+        // At most nine digits, checked above.
+        let fraction = digits(written).ok_or(TemporalError::Malformed)?;
+        Ok(LocalTimestamp {
+            date: self.date,
+            hour: self.hour,
+            minute: self.minute,
+            second: self.second,
+            fraction,
+            precision,
+        })
+    }
+}
+
 /// A date and time of day with no offset.
 ///
 /// Equality compares the fields and the declared precision as written. No
@@ -193,62 +288,18 @@ impl LocalTimestamp {
     ///
     /// # Errors
     ///
-    /// Refuses text of the wrong shape, dates that do not exist, times out
-    /// of range and a fraction that does not match the declared precision.
+    /// Refuses, in this order: text that is not a well-formed timestamp
+    /// (wrong shape, a date that does not exist, a time out of range, a
+    /// point with no digit after it, a malformed or negative-zero offset); a
+    /// fraction that does not match the declared precision; and a
+    /// well-formed timestamp that carries an offset.
     pub fn parse(text: &str, precision: FractionPrecision) -> Result<Self, TemporalError> {
-        match Self::parse_prefix(text.as_bytes(), precision)? {
-            (value, []) => Ok(value),
-            _ => Err(TemporalError::Malformed),
+        let parts = Parts::parse(text.as_bytes())?;
+        let value = parts.local(precision)?;
+        match parts.offset {
+            None => Ok(value),
+            Some(_) => Err(TemporalError::OffsetMismatch),
         }
-    }
-
-    /// Parses a local timestamp from the front of `bytes` and returns it with
-    /// the bytes that follow it.
-    fn parse_prefix(
-        bytes: &[u8],
-        precision: FractionPrecision,
-    ) -> Result<(Self, &[u8]), TemporalError> {
-        // Date, 'T' and HH:MM:SS occupy the first nineteen bytes.
-        if bytes.len() < 19 || bytes[10] != b'T' || bytes[13] != b':' || bytes[16] != b':' {
-            return Err(TemporalError::Malformed);
-        }
-        let date = Date::parse_bytes(&bytes[0..10])?;
-        let hour = digits(&bytes[11..13]).ok_or(TemporalError::Malformed)?;
-        let minute = digits(&bytes[14..16]).ok_or(TemporalError::Malformed)?;
-        let second = digits(&bytes[17..19]).ok_or(TemporalError::Malformed)?;
-        if hour > 23 || minute > 59 || second > 59 {
-            return Err(TemporalError::InvalidTime);
-        }
-        let rest = &bytes[19..];
-        let has_point = rest.first() == Some(&b'.');
-        let (fraction, rest) = if precision.0 == 0 {
-            if has_point {
-                return Err(TemporalError::FractionMismatch);
-            }
-            (0, rest)
-        } else {
-            if !has_point {
-                return Err(TemporalError::FractionMismatch);
-            }
-            let tail = &rest[1..];
-            let run = tail.iter().take_while(|b| b.is_ascii_digit()).count();
-            if run != usize::from(precision.0) {
-                return Err(TemporalError::FractionMismatch);
-            }
-            let (fraction_digits, rest) = tail.split_at(run);
-            // At most nine digits, checked above.
-            let fraction = digits(fraction_digits).ok_or(TemporalError::Malformed)?;
-            (fraction, rest)
-        };
-        let value = Self {
-            date,
-            hour: hour as u8,
-            minute: minute as u8,
-            second: second as u8,
-            fraction,
-            precision,
-        };
-        Ok((value, rest))
     }
 
     /// Calendar date.
@@ -401,12 +452,17 @@ impl OffsetTimestamp {
     ///
     /// # Errors
     ///
-    /// Refuses everything [`LocalTimestamp::parse`] refuses, and a missing,
-    /// malformed, out-of-range or negative-zero offset.
+    /// Refuses, in this order: text that is not a well-formed timestamp,
+    /// as [`LocalTimestamp::parse`] does; a fraction that does not match the
+    /// declared precision; and a well-formed timestamp that carries no
+    /// offset.
     pub fn parse(text: &str, precision: FractionPrecision) -> Result<Self, TemporalError> {
-        let (local, rest) = LocalTimestamp::parse_prefix(text.as_bytes(), precision)?;
-        let offset = Offset::parse_bytes(rest)?;
-        Ok(Self { local, offset })
+        let parts = Parts::parse(text.as_bytes())?;
+        let local = parts.local(precision)?;
+        match parts.offset {
+            Some(offset) => Ok(Self { local, offset }),
+            None => Err(TemporalError::OffsetMismatch),
+        }
     }
 
     /// Date and time of day as written, without the offset.
@@ -511,12 +567,12 @@ mod tests {
     fn fraction_must_match_declared_precision() {
         let cases = [
             ("2024-01-01T00:00:00.0", 0),
-            ("2024-01-01T00:00:00.", 0),
             ("2024-01-01T00:00:00", 3),
-            ("2024-01-01T00:00:00.", 3),
             ("2024-01-01T00:00:00.12", 3),
             ("2024-01-01T00:00:00.1234", 3),
-            ("2024-01-01T00:00:00,123", 3),
+            // More digits than any column declares is still well formed.
+            ("2024-01-01T00:00:00.1234567890", 9),
+            ("2024-01-01T00:00:00.12345678901234567890", 0),
         ];
         for (text, digits) in cases {
             assert_eq!(
@@ -525,6 +581,115 @@ mod tests {
                 "{text}"
             );
         }
+    }
+
+    #[test]
+    fn a_point_needs_a_digit_whatever_the_declared_precision() {
+        for digits in [0, 3] {
+            for text in ["2026-11-19T08:30:00.", "2026-11-19T08:30:00.Z"] {
+                assert_eq!(
+                    LocalTimestamp::parse(text, p(digits)),
+                    Err(TemporalError::Malformed),
+                    "{text} at {digits}"
+                );
+                assert_eq!(
+                    OffsetTimestamp::parse(text, p(digits)),
+                    Err(TemporalError::Malformed),
+                    "{text} at {digits}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_well_formed_timestamp_of_the_other_type_is_an_offset_mismatch() {
+        for (text, digits) in [
+            ("2026-11-19T08:30:00Z", 0),
+            ("2026-11-19T08:30:00+01:00", 0),
+            ("2026-11-19T08:30:00+00:00", 0),
+            ("2026-11-19T08:30:00.000Z", 3),
+            ("2026-11-19T08:30:00.123456789+05:30", 9),
+        ] {
+            assert_eq!(
+                LocalTimestamp::parse(text, p(digits)),
+                Err(TemporalError::OffsetMismatch),
+                "{text}"
+            );
+        }
+        for (text, digits) in [
+            ("2026-11-19T08:30:00", 0),
+            ("2026-11-19T08:30:00.123", 3),
+            ("2026-11-19T08:30:00.123456789", 9),
+        ] {
+            assert_eq!(
+                OffsetTimestamp::parse(text, p(digits)),
+                Err(TemporalError::OffsetMismatch),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn well_formedness_is_judged_before_the_declared_type() {
+        use TemporalError::{InvalidOffset, NegativeZeroOffset};
+        // The fraction width does not fit either; the offset decides.
+        for (text, digits, expected) in [
+            ("2026-11-19T08:30:00,000", 3, InvalidOffset),
+            ("2026-11-19T08:30:00.12+24:00", 3, InvalidOffset),
+            ("2026-11-19T08:30:00-00:00", 3, NegativeZeroOffset),
+            ("2026-11-19T08:30:00.5+24:00", 0, InvalidOffset),
+        ] {
+            assert_eq!(
+                LocalTimestamp::parse(text, p(digits)),
+                Err(expected),
+                "{text}"
+            );
+        }
+        for (text, digits, expected) in [
+            ("2026-11-19T08:30:00.12+99:99", 3, InvalidOffset),
+            ("2026-11-19T08:30:00+99:99", 3, InvalidOffset),
+            ("2026-11-19T08:30:00.12-00:00", 3, NegativeZeroOffset),
+            ("2026-11-19T08:30:00.5+24:00", 0, InvalidOffset),
+        ] {
+            assert_eq!(
+                OffsetTimestamp::parse(text, p(digits)),
+                Err(expected),
+                "{text}"
+            );
+        }
+        // The fraction fits; a local timestamp still names the offset rule.
+        for (text, digits, expected) in [
+            ("2026-11-19T08:30:00 ", 0, InvalidOffset),
+            ("2026-11-19T08:30:00+24:00", 0, InvalidOffset),
+            ("2026-11-19T08:30:00+05:60", 0, InvalidOffset),
+            ("2026-11-19T08:30:00z", 0, InvalidOffset),
+            ("2026-11-19T08:30:00-00:00", 0, NegativeZeroOffset),
+            ("2026-11-19T08:30:00.123-00:00", 3, NegativeZeroOffset),
+        ] {
+            assert_eq!(
+                LocalTimestamp::parse(text, p(digits)),
+                Err(expected),
+                "{text}"
+            );
+        }
+        // Calendar and clock come before the offset and the declared type.
+        assert_eq!(
+            LocalTimestamp::parse("2026-02-30T08:30:00+24:00", p(3)),
+            Err(TemporalError::InvalidDate)
+        );
+        assert_eq!(
+            OffsetTimestamp::parse("2026-11-19T24:00:00", p(3)),
+            Err(TemporalError::InvalidTime)
+        );
+        // A fraction mismatch is reported before an offset mismatch.
+        assert_eq!(
+            LocalTimestamp::parse("2026-11-19T08:30:00.12Z", p(3)),
+            Err(TemporalError::FractionMismatch)
+        );
+        assert_eq!(
+            OffsetTimestamp::parse("2026-11-19T08:30:00", p(3)),
+            Err(TemporalError::FractionMismatch)
+        );
     }
 
     #[test]
@@ -558,18 +723,23 @@ mod tests {
                 "{text}"
             );
         }
+        // Text after the fraction that is not an offset.
         assert_eq!(
             LocalTimestamp::parse("2024-01-01T00:00:00.12x", p(3)),
-            Err(TemporalError::FractionMismatch)
+            Err(TemporalError::InvalidOffset)
         );
         assert_eq!(
             LocalTimestamp::parse("2024-01-01T00:00:00.123x", p(3)),
-            Err(TemporalError::Malformed)
+            Err(TemporalError::InvalidOffset)
+        );
+        assert_eq!(
+            LocalTimestamp::parse("2024-01-01T00:00:00,123", p(3)),
+            Err(TemporalError::InvalidOffset)
         );
         // A local timestamp carries no offset.
         assert_eq!(
             LocalTimestamp::parse("2024-01-01T00:00:00Z", p(0)),
-            Err(TemporalError::Malformed)
+            Err(TemporalError::OffsetMismatch)
         );
     }
 
@@ -620,7 +790,6 @@ mod tests {
     #[test]
     fn bad_offsets_are_refused() {
         for text in [
-            "2024-01-01T00:00:00",
             "2024-01-01T00:00:00z",
             "2024-01-01T00:00:00+0530",
             "2024-01-01T00:00:00+05",
@@ -642,6 +811,11 @@ mod tests {
             OffsetTimestamp::parse("2024-01-01T00:00:00-00:00", p(0)),
             Err(TemporalError::NegativeZeroOffset)
         );
+        // A missing offset is a value of the other type, not a bad offset.
+        assert_eq!(
+            OffsetTimestamp::parse("2024-01-01T00:00:00", p(0)),
+            Err(TemporalError::OffsetMismatch)
+        );
     }
 
     #[test]
@@ -658,7 +832,7 @@ mod tests {
             let expected = if text.ends_with('Z') {
                 TemporalError::FractionMismatch
             } else {
-                TemporalError::InvalidOffset
+                TemporalError::OffsetMismatch
             };
             assert_eq!(err, expected, "{text}");
         }
