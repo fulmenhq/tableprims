@@ -886,6 +886,35 @@ fn the_plan_refuses_what_a_workbook_cannot_hold() {
             "{sheet}"
         );
     }
+    // The worksheet that holds the table metadata is reserved in any letter
+    // case; a name that only contains it is not.
+    for sheet in [
+        "_tableprims",
+        "_TABLEPRIMS",
+        "_TaBlEpRiMs",
+        "_tableprims2",
+        "x_tableprims",
+    ] {
+        let policy = format!(
+            r#"{{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","extensions":{{"tableprims":{{"sheet":"{sheet}"}}}}}}"#
+        );
+        let planned = plan(TEXT, &policy);
+        if sheet.eq_ignore_ascii_case("_tableprims") {
+            let error = planned.unwrap_err();
+            assert_eq!(
+                (error.category(), error.rule(), error.row(), error.column()),
+                (
+                    Category::UnsupportedRepresentation,
+                    "sheet-name-reserved",
+                    None,
+                    None
+                ),
+                "{sheet}"
+            );
+        } else {
+            assert!(planned.is_ok(), "{sheet}");
+        }
+    }
     // A policy that names no worksheet is a complete policy that this
     // destination cannot run.
     for policy in [

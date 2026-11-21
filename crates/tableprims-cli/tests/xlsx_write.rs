@@ -436,6 +436,19 @@ fn refusals_carry_a_category_a_rule_and_a_location() {
         "refused",
         json!({"category": "unsupported-representation", "rule": "sheet-name-unsupported"}),
     );
+    // The policy is read; the workbook reserves the name of its metadata
+    // worksheet in any letter case.
+    let reserved = POLICY.replace("\"Data\"", "\"_TablePrims\"");
+    let result = refused(
+        "sheet-reserved",
+        SCHEMA,
+        &reserved,
+        ROWS,
+        62,
+        "refused",
+        json!({"category": "unsupported-representation", "rule": "sheet-name-reserved"}),
+    );
+    assert_eq!(result["inputs"]["policy"]["bytes"], reserved.len());
     refused(
         "quantize",
         SCHEMA,
@@ -632,11 +645,6 @@ fn policy_extensions_are_bounded_and_named() {
         (
             "sheet-type",
             policy_extended(r#"{"tableprims":{"sheet":7}}"#),
-            "policy-member-invalid",
-        ),
-        (
-            "sheet-reserved",
-            policy_extended(r#"{"tableprims":{"sheet":"_TablePrims"}}"#),
             "policy-member-invalid",
         ),
     ];

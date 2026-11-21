@@ -223,7 +223,7 @@ impl WriteError {
             ErrorKind::UnsupportedRounding => (C::UnsupportedType, "unsupported-rounding"),
             ErrorKind::TooManyColumns => (C::ResourceLimit, "too-many-columns"),
             ErrorKind::SheetNameMissing => (C::UnsupportedRepresentation, "sheet-name-missing"),
-            ErrorKind::SheetNameReserved => (C::SchemaMismatch, "sheet-name-reserved"),
+            ErrorKind::SheetNameReserved => (C::UnsupportedRepresentation, "sheet-name-reserved"),
             ErrorKind::SheetNameUnsupported => {
                 (C::UnsupportedRepresentation, "sheet-name-unsupported")
             }

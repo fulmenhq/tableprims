@@ -6,7 +6,7 @@ use std::io::BufRead;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tableprims::binary64;
-use tableprims::documents::{ExactNumberPolicy, Policy, RESERVED_SHEET};
+use tableprims::documents::{ExactNumberPolicy, Policy};
 use tableprims::exact::{DecimalType, RoundingMode};
 use tableprims::ndjson::{Cell, ReadError, RowReader};
 use tableprims::table::{LogicalType, Scalar, Schema, Value};
@@ -129,7 +129,7 @@ impl Plan {
         let Some(sheet) = policy.sheet() else {
             return Err(WriteError::new(ErrorKind::SheetNameMissing));
         };
-        if sheet.eq_ignore_ascii_case(RESERVED_SHEET) {
+        if sheet.eq_ignore_ascii_case(metadata::WORKSHEET) {
             return Err(WriteError::new(ErrorKind::SheetNameReserved));
         }
         if rust_xlsxwriter::Worksheet::new().set_name(sheet).is_err() {

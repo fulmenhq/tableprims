@@ -103,7 +103,7 @@ pub fn profile_definition() -> String {
         header = metadata::HEADER_ROWS,
         layout = metadata::LAYOUT,
         per_record = metadata::RANGES_PER_RECORD,
-        sheet = tableprims::documents::RESERVED_SHEET,
+        sheet = metadata::WORKSHEET,
         format_scale = write::MAX_FORMAT_SCALE,
         digits = tableprims::binary64::MAX_SIGNIFICANT_DIGITS,
     )
