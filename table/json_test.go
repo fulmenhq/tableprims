@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func parse8(text string) (jsonValue, jsonError) { return parseJSON(text, 8) }
@@ -90,16 +91,22 @@ func TestJSONDuplicateKeysAreRefusedAtEveryDepth(t *testing.T) {
 func TestJSONDuplicateDetectionScales(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("{")
-	for i := range 50_000 {
+	for i := range 200_000 {
 		b.WriteString(`"k` + strconv.Itoa(i) + `":null,`)
 	}
 	prefix := b.String()
+	// Linear detection reads these in milliseconds; a pairwise scan of 200,001
+	// keys takes far longer than the bound, which is loose for slow runners.
+	started := time.Now()
 	value, err := parse8(prefix + `"last":null}`)
-	if m := membersList(value); err != 0 || len(m) != 50_001 || m[0].key != "k0" || m[50_000].key != "last" {
+	if m := membersList(value); err != 0 || len(m) != 200_001 || m[0].key != "k0" || m[200_000].key != "last" {
 		t.Fatalf("unique keys: %v, %d members", err, len(m))
 	}
 	if _, err := parse8(prefix + `"k0":null}`); err != jsonDuplicateKey {
 		t.Errorf("repeated key: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Errorf("duplicate detection took %v for 200,001 keys", elapsed)
 	}
 }
 
