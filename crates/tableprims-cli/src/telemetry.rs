@@ -888,6 +888,8 @@ mod tests {
         assert!(!check_card(golden.to_string().as_bytes()));
         let mut telemetry_only = golden;
         telemetry_only.as_object_mut().unwrap().remove("control");
+        // The example's stream path is absolute on Unix only.
+        telemetry_only["telemetry"]["path"] = written()["telemetry"]["path"].clone();
         assert!(check_card(telemetry_only.to_string().as_bytes()));
         assert!(!check_card(b"not json"));
     }
