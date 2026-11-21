@@ -29,7 +29,8 @@ const (
 // refusal at a zero-based row and a column identifier when it has them.
 //
 // The message never contains document or cell content. It names the column
-// identifier, which locates the refusal.
+// identifier, which locates the refusal. For an io-failure it ends with the
+// error text of the underlying reader, which may name a file.
 type Refusal struct {
 	category  string
 	rule      string

@@ -5,6 +5,7 @@ package table
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -100,7 +101,7 @@ func readAll(r io.Reader, plan *Plan, limit int) ([]Row, error) {
 	var rows []Row
 	for {
 		row, err := reader.Next()
-		if errors.Is(err, io.EOF) {
+		if err == io.EOF {
 			return rows, nil
 		}
 		if err != nil {
@@ -206,7 +207,7 @@ func TestReaderStopsAtTheFirstError(t *testing.T) {
 	reader = NewRowReader(strings.NewReader("[null]"), textPlan(t), 64)
 	reader.Next()
 	for range 2 {
-		if _, err := reader.Next(); !errors.Is(err, io.EOF) {
+		if _, err := reader.Next(); err != io.EOF {
 			t.Errorf("after the end: %v", err)
 		}
 	}
@@ -387,5 +388,44 @@ func TestQuantizedRows(t *testing.T) {
 	column, _ := refusal.Column()
 	if refusal.Rule() != "quantize-overflow" || refusal.Category() != CategorySchemaMismatch || row != 3 || column != "pad" {
 		t.Errorf("%v", err)
+	}
+}
+
+// eofAfter returns its text, then an error that wraps io.EOF.
+type eofAfter struct{ text string }
+
+func (r *eofAfter) Read(p []byte) (int, error) {
+	if r.text == "" {
+		return 0, fmt.Errorf("stream closed: %w", io.EOF)
+	}
+	n := copy(p, r.text)
+	r.text = r.text[n:]
+	return n, nil
+}
+
+func TestAnErrorWrappingEOFIsAReadFailure(t *testing.T) {
+	rows, err := readAll(&eofAfter{text: "[null]\n"}, textPlan(t), 64)
+	refusal := refusalOf(t, err)
+	if len(rows) != 1 || refusal.Rule() != "read-failed" || !errors.Is(err, io.EOF) {
+		t.Errorf("%d rows, %v", len(rows), err)
+	}
+}
+
+func TestRowReaderNeedsAReaderAndAPlan(t *testing.T) {
+	plan := textPlan(t)
+	for name, build := range map[string]func(){
+		"a nil reader":         func() { NewRowReader(nil, plan, 64) },
+		"a nil plan":           func() { NewRowReader(strings.NewReader("[null]"), nil, 64) },
+		"a zero plan":          func() { NewRowReader(strings.NewReader("[null]"), &Plan{}, 64) },
+		"a zero schema's plan": func() { NewRowReader(strings.NewReader("[]"), &Plan{schema: &Schema{}}, 64) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: no panic", name)
+				}
+			}()
+			build()
+		}()
 	}
 }

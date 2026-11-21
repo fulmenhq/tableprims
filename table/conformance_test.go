@@ -212,7 +212,7 @@ func run(schema, policy, rows []byte) ran {
 	var out ran
 	for {
 		row, err := reader.Next()
-		if errors.Is(err, io.EOF) {
+		if err == io.EOF {
 			return out
 		}
 		if err != nil {

@@ -10,6 +10,22 @@ import (
 
 func parse8(text string) (jsonValue, jsonError) { return parseJSON(text, 8) }
 
+func items(v jsonValue) []jsonValue {
+	var out []jsonValue
+	for item := range v.items {
+		out = append(out, item)
+	}
+	return out
+}
+
+func membersList(v jsonValue) []jsonMember {
+	var out []jsonMember
+	for key, member := range v.members {
+		out = append(out, jsonMember{key: key, value: member})
+	}
+	return out
+}
+
 func TestJSONValuesAreRead(t *testing.T) {
 	cases := []struct {
 		text string
@@ -34,16 +50,17 @@ func TestJSONValuesAreRead(t *testing.T) {
 		t.Errorf("largest uint64 read as %d", value.integer)
 	}
 	value, err := parse8("\r\n{ \"a\" : [ 1 , null ] ,\t\"b\" : { \"c\" : \"d\" } }\r\n")
-	if err != 0 || len(value.members) != 2 || value.members[0].key != "a" ||
-		len(value.members[0].value.items) != 2 || value.members[1].value.members[0].value.text != "d" {
+	top := membersList(value)
+	if err != 0 || len(top) != 2 || top[0].key != "a" || len(items(top[0].value)) != 2 ||
+		membersList(top[1].value)[0].value.text != "d" || items(top[0].value)[0].integer != 1 {
 		t.Errorf("nested document read as %+v, %v", value, err)
 	}
 }
 
 func TestJSONMemberOrderIsKept(t *testing.T) {
 	value, err := parse8(`{"b": 1, "a": 2}`)
-	if err != 0 || value.members[0].key != "b" || value.members[1].key != "a" {
-		t.Errorf("order not kept: %+v", value.members)
+	if m := membersList(value); err != 0 || m[0].key != "b" || m[1].key != "a" {
+		t.Errorf("order not kept: %+v", m)
 	}
 }
 
@@ -78,8 +95,8 @@ func TestJSONDuplicateDetectionScales(t *testing.T) {
 	}
 	prefix := b.String()
 	value, err := parse8(prefix + `"last":null}`)
-	if err != 0 || len(value.members) != 50_001 || value.members[0].key != "k0" {
-		t.Fatalf("unique keys: %v, %d members", err, len(value.members))
+	if m := membersList(value); err != 0 || len(m) != 50_001 || m[0].key != "k0" || m[50_000].key != "last" {
+		t.Fatalf("unique keys: %v, %d members", err, len(m))
 	}
 	if _, err := parse8(prefix + `"k0":null}`); err != jsonDuplicateKey {
 		t.Errorf("repeated key: %v", err)
@@ -105,7 +122,7 @@ func TestJSONNumbers(t *testing.T) {
 		}
 	}
 	value, err := parse8(`{"a": [18446744073709551616]}`)
-	if err != 0 || value.members[0].value.items[0].kind != jsonBigInteger {
+	if err != 0 || items(membersList(value)[0].value)[0].kind != jsonBigInteger {
 		t.Errorf("nested big integer: %v", err)
 	}
 	for _, text := range []string{

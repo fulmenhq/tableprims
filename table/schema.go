@@ -129,6 +129,8 @@ type Column struct {
 // changed once built.
 type Schema struct {
 	columns []Column
+	// index maps each column identifier to its position.
+	index map[string]int
 }
 
 var (
@@ -146,15 +148,15 @@ func NewSchema(columns []Column) (*Schema, error) {
 	if len(columns) == 0 {
 		return nil, errColumnsInvalid.fresh()
 	}
-	seen := make(map[string]struct{}, len(columns))
-	for _, column := range columns {
+	index := make(map[string]int, len(columns))
+	for at, column := range columns {
 		if column.ID == "" {
 			return nil, errColumnsInvalid.fresh()
 		}
-		if _, repeated := seen[column.ID]; repeated {
+		if _, repeated := index[column.ID]; repeated {
 			return nil, errColumnsInvalid.fresh()
 		}
-		seen[column.ID] = struct{}{}
+		index[column.ID] = at
 		switch kind := column.Type.kind; {
 		case kind < KindString || int(kind) >= len(kindNames):
 			return nil, errTypeUnsupported.fresh()
@@ -162,7 +164,7 @@ func NewSchema(columns []Column) (*Schema, error) {
 			return nil, errTypeInvalid.fresh()
 		}
 	}
-	return &Schema{columns: append([]Column(nil), columns...)}, nil
+	return &Schema{columns: append([]Column(nil), columns...), index: index}, nil
 }
 
 // Columns returns a copy of the columns in order.
@@ -177,12 +179,8 @@ func (s *Schema) Column(i int) Column { return s.columns[i] }
 // Index returns the position of the column with the given identifier, and
 // whether there is one.
 func (s *Schema) Index(id string) (int, bool) {
-	for i, column := range s.columns {
-		if column.ID == id {
-			return i, true
-		}
-	}
-	return 0, false
+	at, ok := s.index[id]
+	return at, ok
 }
 
 // Value is a typed cell value: Null, Boolean, Text, Integer, Decimal, Date,

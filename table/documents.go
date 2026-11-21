@@ -3,6 +3,7 @@
 package table
 
 import (
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -68,24 +69,29 @@ func docRefusal(prefix string, fault docFault) *Refusal {
 	return refuse(CategoryInvalidInput, prefix+"-invalid")
 }
 
-// members are the members of one object, taken by name; whatever is left
-// is unknown.
-type members []jsonMember
+// members are the members of one object, taken by name; whatever is not
+// taken is unknown. The object is not unpacked: taking a member reads the
+// object's text, as finding it in a list of members would.
+type members struct {
+	object jsonValue
+	taken  []string
+}
 
 func membersOf(value jsonValue) (members, docFault) {
 	if value.kind != jsonObject {
-		return nil, faultNotAnObject
+		return members{}, faultNotAnObject
 	}
-	return members(append([]jsonMember(nil), value.members...)), 0
+	return members{object: value}, 0
 }
 
 func (m *members) take(name string) (jsonValue, bool) {
-	for i, member := range *m {
-		if member.key == name {
-			last := len(*m) - 1
-			(*m)[i] = (*m)[last]
-			*m = (*m)[:last]
-			return member.value, true
+	if slices.Contains(m.taken, name) {
+		return jsonValue{}, false
+	}
+	for key, value := range m.object.members {
+		if key == name {
+			m.taken = append(m.taken, name)
+			return value, true
 		}
 	}
 	return jsonValue{}, false
@@ -107,7 +113,8 @@ func (m *members) string(name string) (string, docFault) {
 	if value.kind != jsonString {
 		return "", faultInvalid
 	}
-	return value.text, 0
+	// A copy, so that what is kept does not hold the document.
+	return strings.Clone(value.text), 0
 }
 
 func (m *members) boolean(name string) (bool, docFault) {
@@ -118,7 +125,7 @@ func (m *members) boolean(name string) (bool, docFault) {
 	if value.kind != jsonBoolean {
 		return false, faultInvalid
 	}
-	return value.boolean, 0
+	return value.boolean(), 0
 }
 
 // small reads a number of at most 255.
@@ -145,8 +152,10 @@ func (m *members) optionalCount(name string) (Limit, docFault) {
 }
 
 func (m members) finish() docFault {
-	if len(m) != 0 {
-		return faultUnknown
+	for key := range m.object.members {
+		if !slices.Contains(m.taken, key) {
+			return faultUnknown
+		}
 	}
 	return 0
 }
@@ -155,21 +164,21 @@ func (m members) finish() docFault {
 // is judged before any other member.
 func document(data []byte, prefix, format string, maxDepth int) (members, *Refusal) {
 	if len(data) > MaxDocumentBytes {
-		return nil, refuse(CategoryResourceLimit, prefix+"-too-large")
+		return members{}, refuse(CategoryResourceLimit, prefix+"-too-large")
 	}
 	if !utf8.Valid(data) {
-		return nil, refuse(CategoryInvalidInput, prefix+"-not-utf8")
+		return members{}, refuse(CategoryInvalidInput, prefix+"-not-utf8")
 	}
 	value, err := parseJSON(string(data), maxDepth)
 	if err != 0 {
-		return nil, docRefusal(prefix, faultJSON)
+		return members{}, docRefusal(prefix, faultJSON)
 	}
 	m, fault := membersOf(value)
 	if fault != 0 {
-		return nil, docRefusal(prefix, fault)
+		return members{}, docRefusal(prefix, fault)
 	}
 	if found, ok := m.take("format"); !ok || found.kind != jsonString || found.text != format {
-		return nil, docRefusal(prefix, faultFormat)
+		return members{}, docRefusal(prefix, faultFormat)
 	}
 	return m, nil
 }
@@ -204,8 +213,8 @@ func readSchema(m members) (*Schema, docFault) {
 	if fault := m.finish(); fault != 0 {
 		return nil, fault
 	}
-	columns := make([]Column, 0, len(entries.items))
-	for _, entry := range entries.items {
+	var columns []Column
+	for entry := range entries.items {
 		column, fault := readColumn(entry)
 		if fault != 0 {
 			return nil, fault
@@ -349,19 +358,43 @@ type Policy struct {
 	limits       Limits
 }
 
-// ExactNumbers is the representation policy for exact-number columns.
-func (p *Policy) ExactNumbers() ExactNumbers { return p.exactNumbers }
+// ExactNumbers is the representation policy for exact-number columns. A
+// nil policy has none and returns zero.
+func (p *Policy) ExactNumbers() ExactNumbers {
+	if p == nil {
+		return 0
+	}
+	return p.exactNumbers
+}
 
 // Quantize returns a copy of the quantize requests, in the order written.
-func (p *Policy) Quantize() []Quantize { return append([]Quantize(nil), p.quantize...) }
+// A nil policy has none.
+func (p *Policy) Quantize() []Quantize {
+	if p == nil {
+		return nil
+	}
+	return append([]Quantize(nil), p.quantize...)
+}
 
 // Sheet is the name of the destination sheet the policy gives under
 // ExtensionNamespace, and whether it gives one. Requiring a name, reserving
-// names and any further naming rule belong to the destination.
-func (p *Policy) Sheet() (string, bool) { return p.sheet, p.hasSheet }
+// names and any further naming rule belong to the destination. A nil policy
+// gives none.
+func (p *Policy) Sheet() (string, bool) {
+	if p == nil {
+		return "", false
+	}
+	return p.sheet, p.hasSheet
+}
 
-// Limits are the limits the policy sets under ExtensionNamespace.
-func (p *Policy) Limits() Limits { return p.limits }
+// Limits are the limits the policy sets under ExtensionNamespace. A nil
+// policy sets none.
+func (p *Policy) Limits() Limits {
+	if p == nil {
+		return Limits{}
+	}
+	return p.limits
+}
 
 // ReadPolicy reads a policy document of format PolicyFormat.
 //
@@ -401,16 +434,16 @@ func readPolicy(m members) (*Policy, docFault) {
 		if requests.kind != jsonArray {
 			return nil, faultInvalid
 		}
-		for _, entry := range requests.items {
+		seen := map[string]struct{}{}
+		for entry := range requests.items {
 			request, fault := readQuantize(entry)
 			if fault != 0 {
 				return nil, fault
 			}
-			for _, seen := range p.quantize {
-				if seen.Column == request.Column {
-					return nil, faultQuantizeDuplicate
-				}
+			if _, repeated := seen[request.Column]; repeated {
+				return nil, faultQuantizeDuplicate
 			}
+			seen[request.Column] = struct{}{}
 			p.quantize = append(p.quantize, request)
 		}
 	}
@@ -499,15 +532,15 @@ func (t *tally) walk(value jsonValue) {
 	case jsonBigInteger:
 		t.largeNumber = true
 	case jsonArray:
-		for _, item := range value.items {
+		for item := range value.items {
 			t.values++
 			t.walk(item)
 		}
 	case jsonObject:
-		for _, member := range value.members {
+		for key, member := range value.members {
 			t.values++
-			t.string(member.key)
-			t.walk(member.value)
+			t.string(key)
+			t.walk(member)
 		}
 	}
 }
@@ -519,12 +552,15 @@ func (p *Policy) readExtensions(value jsonValue) docFault {
 	if value.kind != jsonObject {
 		return faultNotAnObject
 	}
-	namespaces := value.members
 	// The bounds and the shape, without knowing any namespace: the number
 	// of namespaces; then each namespace in document order, its name before
 	// its value; then the strings, numbers and number of values.
-	if len(namespaces) > MaxExtensionNamespaces {
-		return faultInvalid
+	var namespaces []jsonMember
+	for key, content := range value.members {
+		if len(namespaces) == MaxExtensionNamespaces {
+			return faultInvalid
+		}
+		namespaces = append(namespaces, jsonMember{key: key, value: content})
 	}
 	for _, namespace := range namespaces {
 		if !isNamespace(namespace.key) {
@@ -559,7 +595,7 @@ func (p *Policy) readExtensions(value jsonValue) docFault {
 		if sheet.kind != jsonString || sheet.text == "" {
 			return faultInvalid
 		}
-		p.sheet, p.hasSheet = sheet.text, true
+		p.sheet, p.hasSheet = strings.Clone(sheet.text), true
 	}
 	if limits, ok := m.take("limits"); ok {
 		lm, fault := membersOf(limits)
@@ -613,12 +649,17 @@ var (
 // policy quantizes nothing. The target type of a quantized column keeps the
 // column's declared precision.
 //
-// It refuses a request that names an unknown column
+// It refuses a nil schema, or one not made by NewSchema or ReadSchema and
+// so without columns, with schema-columns-invalid, the rule a schema
+// document with no columns gets. It refuses a request that names an unknown column
 // (quantize-unknown-column), a column that is not a decimal
 // (quantize-not-decimal), or a target scale above the column's declared
 // precision (quantize-scale-too-large), judging the requests in the order
 // written.
 func NewPlan(schema *Schema, policy *Policy) (*Plan, error) {
+	if schema == nil || len(schema.columns) == 0 {
+		return nil, errColumnsInvalid.fresh()
+	}
 	plan := &Plan{schema: schema, policy: policy, targets: make([]target, len(schema.columns))}
 	if policy == nil {
 		return plan, nil

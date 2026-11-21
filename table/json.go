@@ -32,14 +32,64 @@ const (
 	jsonObject
 )
 
-// jsonValue is a JSON value. Only the fields of its kind are set.
+// jsonValue is a JSON value read from a document that has already been
+// judged well formed. A container is not unpacked: its text is kept and its
+// elements and members are read when they are iterated, so that reading a
+// document builds no tree.
 type jsonValue struct {
-	kind    jsonKind
-	boolean bool
+	kind jsonKind
+	// integer is the number of a jsonInteger, and 1 for true.
 	integer uint64
-	text    string
-	items   []jsonValue
-	members []jsonMember
+	// text is the decoded text of a jsonString, and the text of a jsonArray
+	// or jsonObject from its opening bracket to its closing one.
+	text string
+}
+
+func (v jsonValue) boolean() bool { return v.integer != 0 }
+
+// items yields the elements of an array in order.
+func (v jsonValue) items(yield func(jsonValue) bool) {
+	c := &cursor{text: v.text, at: 1}
+	c.skip(isJSONSpace)
+	if c.peek() == ']' {
+		return
+	}
+	for {
+		c.skip(isJSONSpace)
+		if !yield(load(c)) {
+			return
+		}
+		c.skip(isJSONSpace)
+		if c.peek() == ']' {
+			return
+		}
+		c.advance() // the comma
+	}
+}
+
+// members yields the members of an object in the order written.
+func (v jsonValue) members(yield func(string, jsonValue) bool) {
+	c := &cursor{text: v.text, at: 1}
+	c.skip(isJSONSpace)
+	if c.peek() == '}' {
+		return
+	}
+	for {
+		c.skip(isJSONSpace)
+		c.advance() // the opening quote
+		key, _ := c.str()
+		c.skip(isJSONSpace)
+		c.advance() // the colon
+		c.skip(isJSONSpace)
+		if !yield(key, load(c)) {
+			return
+		}
+		c.skip(isJSONSpace)
+		if c.peek() == '}' {
+			return
+		}
+		c.advance() // the comma
+	}
 }
 
 // jsonMember is one member of an object, in the order written.
@@ -246,54 +296,220 @@ func stringFault(err stringError) jsonError {
 // parseJSON parses one JSON document whose arrays and objects nest at most
 // maxDepth deep; a scalar document has depth zero. A limit above maxNesting
 // is treated as maxNesting.
+//
+// The whole text is judged first, without building values; only then is
+// the top value returned, to be read lazily.
 func parseJSON(text string, maxDepth int) (jsonValue, jsonError) {
 	c := &cursor{text: text}
 	c.skip(isJSONSpace)
 	if c.peek() == end {
 		return jsonValue{}, jsonEmpty
 	}
-	value, err := parseValue(c, min(maxDepth, maxNesting))
-	if err != 0 {
+	depth := min(maxDepth, maxNesting)
+	v := &validator{c: c, keys: make([][]string, depth+1), seen: make([]map[string]struct{}, depth+1)}
+	if err := v.value(depth, 0); err != 0 {
 		return jsonValue{}, err
 	}
 	c.skip(isJSONSpace)
 	if c.peek() != end {
 		return jsonValue{}, jsonTrailingContent
 	}
-	return value, 0
+	top := &cursor{text: text}
+	top.skip(isJSONSpace)
+	return load(top), 0
 }
 
-func parseValue(c *cursor, depthLeft int) (jsonValue, jsonError) {
+// smallObject is the number of keys up to which an object's keys are
+// compared one by one; a larger object is checked with a set.
+const smallObject = 16
+
+// validator judges JSON text without building values. The key lists and
+// sets are kept per nesting level and reused for every object at that
+// level, so judging allocates nothing for small objects.
+type validator struct {
+	c    *cursor
+	keys [][]string
+	seen []map[string]struct{}
+}
+
+func (v *validator) value(depthLeft, level int) jsonError {
+	c := v.c
 	switch b := c.peek(); {
 	case b == '"':
 		c.advance()
-		text, err := c.str()
-		if err != stringOK {
-			return jsonValue{}, stringFault(err)
+		if _, err := c.str(); err != stringOK {
+			return stringFault(err)
 		}
-		return jsonValue{kind: jsonString, text: text}, 0
-	case b == 'n' && c.take("null"):
-		return jsonValue{kind: jsonNull}, 0
-	case b == 't' && c.take("true"):
-		return jsonValue{kind: jsonBoolean, boolean: true}, 0
-	case b == 'f' && c.take("false"):
-		return jsonValue{kind: jsonBoolean}, 0
+		return 0
+	case b == 'n' && c.take("null"), b == 't' && c.take("true"), b == 'f' && c.take("false"):
+		return 0
 	case b == '-' || (b >= '0' && b <= '9'):
-		return parseNumber(c)
+		_, err := parseNumber(c)
+		return err
 	case b == '[':
 		if depthLeft <= 0 {
-			return jsonValue{}, jsonTooDeep
+			return jsonTooDeep
 		}
 		c.advance()
-		return parseArray(c, depthLeft-1)
+		return v.array(depthLeft-1, level+1)
 	case b == '{':
 		if depthLeft <= 0 {
-			return jsonValue{}, jsonTooDeep
+			return jsonTooDeep
 		}
 		c.advance()
-		return parseObject(c, depthLeft-1)
+		return v.object(depthLeft-1, level+1)
 	}
-	return jsonValue{}, jsonMalformed
+	return jsonMalformed
+}
+
+// array judges array elements; the opening bracket is already consumed.
+func (v *validator) array(depthLeft, level int) jsonError {
+	c := v.c
+	c.skip(isJSONSpace)
+	if c.peek() == ']' {
+		c.advance()
+		return 0
+	}
+	for {
+		c.skip(isJSONSpace)
+		if err := v.value(depthLeft, level); err != 0 {
+			return err
+		}
+		c.skip(isJSONSpace)
+		switch c.peek() {
+		case ',':
+			c.advance()
+		case ']':
+			c.advance()
+			return 0
+		default:
+			return jsonMalformed
+		}
+	}
+}
+
+// object judges object members; the opening brace is already consumed. A
+// key is compared with the earlier keys of the object, after decoding,
+// before its value is read.
+func (v *validator) object(depthLeft, level int) jsonError {
+	c := v.c
+	keys := &v.keys[level]
+	*keys = (*keys)[:0]
+	var seen map[string]struct{}
+	c.skip(isJSONSpace)
+	if c.peek() == '}' {
+		c.advance()
+		return 0
+	}
+	for {
+		c.skip(isJSONSpace)
+		if c.peek() != '"' {
+			return jsonMalformed
+		}
+		c.advance()
+		key, serr := c.str()
+		if serr != stringOK {
+			return stringFault(serr)
+		}
+		if seen == nil {
+			for _, earlier := range *keys {
+				if earlier == key {
+					return jsonDuplicateKey
+				}
+			}
+			*keys = append(*keys, key)
+			if len(*keys) > smallObject {
+				seen = v.seen[level]
+				if seen == nil {
+					seen = make(map[string]struct{}, 4*smallObject)
+					v.seen[level] = seen
+				} else {
+					clear(seen)
+				}
+				for _, earlier := range *keys {
+					seen[earlier] = struct{}{}
+				}
+			}
+		} else {
+			if _, repeated := seen[key]; repeated {
+				return jsonDuplicateKey
+			}
+			seen[key] = struct{}{}
+		}
+		c.skip(isJSONSpace)
+		if c.peek() != ':' {
+			return jsonMalformed
+		}
+		c.advance()
+		c.skip(isJSONSpace)
+		if err := v.value(depthLeft, level); err != 0 {
+			return err
+		}
+		c.skip(isJSONSpace)
+		switch c.peek() {
+		case ',':
+			c.advance()
+		case '}':
+			c.advance()
+			return 0
+		default:
+			return jsonMalformed
+		}
+	}
+}
+
+// load reads the value at the cursor of text already judged well formed,
+// and moves the cursor past it. A container is not unpacked.
+func load(c *cursor) jsonValue {
+	switch c.peek() {
+	case '"':
+		c.advance()
+		text, _ := c.str()
+		return jsonValue{kind: jsonString, text: text}
+	case 'n':
+		c.at += len("null")
+		return jsonValue{kind: jsonNull}
+	case 't':
+		c.at += len("true")
+		return jsonValue{kind: jsonBoolean, integer: 1}
+	case 'f':
+		c.at += len("false")
+		return jsonValue{kind: jsonBoolean}
+	case '[', '{':
+		start := c.at
+		kind := jsonArray
+		if c.text[start] == '{' {
+			kind = jsonObject
+		}
+		c.at = skipContainer(c.text, start)
+		return jsonValue{kind: kind, text: c.text[start:c.at]}
+	}
+	value, _ := parseNumber(c)
+	return value
+}
+
+// skipContainer returns the position after the array or object that opens
+// at position at of text already judged well formed.
+func skipContainer(text string, at int) int {
+	depth := 0
+	for i := at; i < len(text); i++ {
+		switch text[i] {
+		case '"':
+			for i++; text[i] != '"'; i++ {
+				if text[i] == '\\' {
+					i++
+				}
+			}
+		case '[', '{':
+			depth++
+		case ']', '}':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return len(text)
 }
 
 func isDigit(b int) bool { return b >= '0' && b <= '9' }
@@ -402,79 +618,4 @@ func isNumber(token string) bool {
 		rest = rest[run:]
 	}
 	return rest == ""
-}
-
-// parseArray reads array elements; the opening bracket is already consumed.
-func parseArray(c *cursor, depthLeft int) (jsonValue, jsonError) {
-	items := []jsonValue{}
-	c.skip(isJSONSpace)
-	if c.peek() == ']' {
-		c.advance()
-		return jsonValue{kind: jsonArray, items: items}, 0
-	}
-	for {
-		c.skip(isJSONSpace)
-		item, err := parseValue(c, depthLeft)
-		if err != 0 {
-			return jsonValue{}, err
-		}
-		items = append(items, item)
-		c.skip(isJSONSpace)
-		switch c.peek() {
-		case ',':
-			c.advance()
-		case ']':
-			c.advance()
-			return jsonValue{kind: jsonArray, items: items}, 0
-		default:
-			return jsonValue{}, jsonMalformed
-		}
-	}
-}
-
-// parseObject reads object members; the opening brace is already consumed.
-func parseObject(c *cursor, depthLeft int) (jsonValue, jsonError) {
-	members := []jsonMember{}
-	seen := map[string]struct{}{}
-	c.skip(isJSONSpace)
-	if c.peek() == '}' {
-		c.advance()
-		return jsonValue{kind: jsonObject, members: members}, 0
-	}
-	for {
-		c.skip(isJSONSpace)
-		if c.peek() != '"' {
-			return jsonValue{}, jsonMalformed
-		}
-		c.advance()
-		key, serr := c.str()
-		if serr != stringOK {
-			return jsonValue{}, stringFault(serr)
-		}
-		if _, repeated := seen[key]; repeated {
-			return jsonValue{}, jsonDuplicateKey
-		}
-		seen[key] = struct{}{}
-		c.skip(isJSONSpace)
-		if c.peek() != ':' {
-			return jsonValue{}, jsonMalformed
-		}
-		c.advance()
-		c.skip(isJSONSpace)
-		member, err := parseValue(c, depthLeft)
-		if err != 0 {
-			return jsonValue{}, err
-		}
-		members = append(members, jsonMember{key: key, value: member})
-		c.skip(isJSONSpace)
-		switch c.peek() {
-		case ',':
-			c.advance()
-		case '}':
-			c.advance()
-			return jsonValue{kind: jsonObject, members: members}, 0
-		default:
-			return jsonValue{}, jsonMalformed
-		}
-	}
 }

@@ -175,7 +175,17 @@ type RowReader struct {
 // NewRowReader returns a reader of the rows in r under plan that refuses
 // any line longer than maxLineBytes bytes, not counting its terminator. A
 // negative limit is treated as zero.
+//
+// plan must come from NewPlan. NewRowReader panics when r is nil or plan is
+// nil or was not made by NewPlan.
 func NewRowReader(r io.Reader, plan *Plan, maxLineBytes int) *RowReader {
+	if r == nil {
+		panic("table: NewRowReader with a nil reader")
+	}
+	if plan == nil || plan.schema == nil || len(plan.schema.columns) == 0 ||
+		len(plan.targets) != len(plan.schema.columns) {
+		panic("table: NewRowReader with a plan not made by NewPlan")
+	}
 	quantize := false
 	for _, target := range plan.targets {
 		quantize = quantize || target.set
@@ -188,7 +198,9 @@ func NewRowReader(r io.Reader, plan *Plan, maxLineBytes int) *RowReader {
 	}
 }
 
-// Next returns the next row. At the end of the input it returns io.EOF.
+// Next returns the next row. At the end of the input it returns io.EOF
+// itself. Compare it with ==: a read-failed refusal unwraps to the error of
+// r, which may wrap io.EOF without being the end of the input.
 //
 // Any other error is a *Refusal: of the line (located at its row), of the
 // row against the schema (located at its row and, where there is one, its
@@ -228,7 +240,7 @@ func (rr *RowReader) readLine() (bool, error) {
 			if len(rr.line) >= limit {
 				return true, nil
 			}
-		case errors.Is(err, io.EOF):
+		case err == io.EOF: // only the end itself, as io.Reader returns it
 			return len(rr.line) > 0, nil
 		default:
 			return false, err

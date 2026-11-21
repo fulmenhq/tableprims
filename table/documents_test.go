@@ -3,9 +3,11 @@
 package table
 
 import (
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 const fullSchema = `{
@@ -527,5 +529,148 @@ func TestDocumentMessagesDoNotContainContent(t *testing.T) {
 		if err == nil || strings.Contains(err.Error(), "secret") {
 			t.Errorf("%v", err)
 		}
+	}
+}
+
+// allocated returns the bytes allocated while read runs.
+func allocated(read func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	read()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+// hostile is a document of about size bytes: head, then unit repeated, then
+// last and tail.
+func hostile(size int, head, unit, last, tail string) []byte {
+	var b strings.Builder
+	b.WriteString(head)
+	for b.Len()+len(unit)+len(last)+len(tail) < size {
+		b.WriteString(unit)
+	}
+	b.WriteString(last + tail)
+	return []byte(b.String())
+}
+
+// Reading a document allocates in proportion to what it keeps, not to the
+// number of values it holds: no tree of values is built.
+func TestHostileDocumentsAllocateInProportionToTheirSize(t *testing.T) {
+	const size = 4 << 20
+	head := `{"format":"tabular-exchange.schema/0","columns":[`
+	keys := func() []byte {
+		var b strings.Builder
+		b.WriteString(head + "{")
+		for i := 0; b.Len() < size-16; i++ {
+			b.WriteString(`"k` + strconv.Itoa(i) + `":0,`)
+		}
+		b.WriteString(`"z":0}]}`)
+		return []byte(b.String())
+	}
+	for _, c := range []struct {
+		name     string
+		document []byte
+		rule     string
+		multiple uint64
+	}{
+		// The text is copied once into a string; nothing else grows with it.
+		{"numbers", hostile(size, head, "0,", "0", "]}"), "schema-not-an-object", 2},
+		{"empty objects", hostile(size, head, "{},", "{}", "]}"), "schema-member-missing", 2},
+		// One object of many members needs a set of its keys to find a
+		// repeat.
+		{"one object of many members", keys(), "schema-member-missing", 10},
+	} {
+		var err error
+		bytes := allocated(func() { _, err = ReadSchema(c.document) })
+		invalid(t, c.name, err, c.rule)
+		if bytes > c.multiple*uint64(len(c.document)) {
+			t.Errorf("%s: %d bytes allocated for a document of %d, more than %d times its size",
+				c.name, bytes, len(c.document), c.multiple)
+		}
+	}
+	// A policy of many distinct quantize requests is read in linear time
+	// and keeps about what it holds.
+	var b strings.Builder
+	b.WriteString(`{"format":"tabular-exchange.policy/0","exact_numbers":"text-always","quantize":[`)
+	const requests = 100_000
+	for i := range requests {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`{"column":"c` + strconv.Itoa(i) + `","scale":1,"rounding":"half-even"}`)
+	}
+	b.WriteString("]}")
+	document := []byte(b.String())
+	var policy *Policy
+	var err error
+	start := time.Now()
+	bytes := allocated(func() { policy, err = ReadPolicy(document) })
+	if elapsed := time.Since(start); err != nil || len(policy.Quantize()) != requests || elapsed > 5*time.Second {
+		t.Errorf("%d requests: %v in %v", requests, err, elapsed)
+	}
+	if bytes > 12*uint64(len(document)) {
+		t.Errorf("%d bytes allocated for a policy of %d", bytes, len(document))
+	}
+	// The first repeat in document order is the one reported, after
+	// everything before it was read.
+	repeated := strings.Replace(string(document), `"c99999"`, `"c5"`, 1)
+	repeated = strings.Replace(repeated, `"c99998","scale":1,"rounding":"half-even"`, `"c99998","scale":1,"rounding":"half-up"`, 1)
+	_, err = readPolicyText(repeated)
+	invalid(t, "a late invalid request before a repeat", err, "policy-member-invalid")
+	repeated = strings.Replace(string(document), `"c99999"`, `"c5"`, 1)
+	_, err = readPolicyText(repeated)
+	invalid(t, "a repeat", err, "policy-quantize-duplicate")
+}
+
+func TestPlansNeedASchemaWithColumns(t *testing.T) {
+	for _, schema := range []*Schema{nil, {}} {
+		_, err := NewPlan(schema, nil)
+		invalid(t, "a schema without columns", err, "schema-columns-invalid")
+	}
+	// A schema of many columns is planned in linear time.
+	columns := make([]Column, 50_000)
+	var b strings.Builder
+	b.WriteString(`{"format":"tabular-exchange.policy/0","exact_numbers":"text-always","quantize":[`)
+	for i := range columns {
+		id := "c" + strconv.Itoa(i)
+		columns[i] = Column{ID: id, Type: DecimalOf(decimalType(t, 10, 2))}
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`{"column":"` + id + `","scale":1,"rounding":"half-even"}`)
+	}
+	b.WriteString("]}")
+	schema, err := NewSchema(columns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := readPolicyText(b.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	plan, err := NewPlan(schema, policy)
+	if elapsed := time.Since(start); err != nil || elapsed > 5*time.Second {
+		t.Errorf("%v in %v", err, elapsed)
+	}
+	if _, _, ok := plan.Target(len(columns) - 1); !ok {
+		t.Error("the last column is not quantized")
+	}
+}
+
+func TestANilPolicySetsNothing(t *testing.T) {
+	var policy *Policy
+	sheet, ok := policy.Sheet()
+	if policy.ExactNumbers() != 0 || policy.Quantize() != nil || sheet != "" || ok || policy.Limits() != (Limits{}) {
+		t.Error("a nil policy sets something")
+	}
+	schema, err := readSchemaText(fullSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewPlan(schema, nil)
+	if err != nil || plan.Policy().Limits() != (Limits{}) {
+		t.Errorf("a plan without a policy: %v", err)
 	}
 }
