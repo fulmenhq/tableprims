@@ -7,6 +7,9 @@ inputs:
   rust-toolchain:
     description: Rust toolchain (the workspace MSRV).
     required: true
+  go-toolchain:
+    description: Go toolchain for the root Go module.
+    required: true
 runs:
   using: composite
   steps:
@@ -19,17 +22,25 @@ runs:
       with:
         toolchain: ${{ inputs.rust-toolchain }}
         components: rustfmt, clippy
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+      with:
+        go-version: ${{ inputs.go-toolchain }}
+        cache: false
     - name: Verify native host and toolchain
       shell: bash
       env:
         TARGET: ${{ inputs.target }}
         TOOLCHAIN: ${{ inputs.rust-toolchain }}
+        GO_TOOLCHAIN: ${{ inputs.go-toolchain }}
+        GOTOOLCHAIN: local
       run: |
         host=$(rustc -vV | awk '/^host:/{print $2}')
         test "${host}" = "${TARGET}"
         rustc --version | grep "^rustc ${TOOLCHAIN} "
         grep -qx "rust-version = \"${TOOLCHAIN}\"" Cargo.toml
         python --version
+        go version | grep "^go version go${GO_TOOLCHAIN} "
     - name: Ensure make
       shell: bash
       run: |

@@ -405,7 +405,8 @@ release `v0.5.1` under
 origin, commit, licence and a SHA-256 for every file. The tests check those
 digests, run the vectors through the built `tablebolt` binary and compare the
 status, category, rule and location of each outcome with the one the vector
-states. `make check` runs them; nothing is fetched.
+states. `make check` runs them; nothing is fetched. The Go package runs the
+same 477 through its own reader; see [docs/go.md](go.md#conformance).
 
 | Suite                              | In the release | Run | Agree |
 | ---------------------------------- | -------------- | --- | ----- |

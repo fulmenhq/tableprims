@@ -9,7 +9,10 @@
 # sources, bans, advisories).
 #
 # Native macOS and Windows cells run `make check-platform` via
-# `.github/actions/make-check` with zero external binary downloads.
+# `.github/actions/make-check`, which installs the pinned Python, Rust and Go
+# toolchains and no other external binary. Every cell runs the Go module's
+# checks and tests, the conformance vectors included; the Linux cells also
+# run them under the race detector.
 #
 # Hosted (every push and PR):
 #   ubuntu-latest   x86_64-unknown-linux-gnu  (goneat-tools-runner-glibc:v0.5.15)
@@ -35,6 +38,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN: 1.88.0
+  # The Go toolchain every cell runs; the Linux image provides it, the native
+  # cells install it. Never fetched by the go command itself.
+  GO_TOOLCHAIN: 1.26.10
+  GOTOOLCHAIN: local
 jobs:
   check-linux:
     name: check (x86_64-unknown-linux-gnu)
@@ -71,6 +78,7 @@ jobs:
           grep -qx "rust-version = \"${RUST_TOOLCHAIN}\"" Cargo.toml
           goneat version | grep '^Module: v0\.6\.8$'
           cargo deny --version
+          go version | grep "^go version go${GO_TOOLCHAIN} "
           python3 --version
           python3 -B -E -c 'import yaml'
       - name: make check
@@ -107,6 +115,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
+          go-toolchain: ${{ env.GO_TOOLCHAIN }}
   check-linux-arm64:
     name: check (aarch64-unknown-linux-gnu)
     # Same-repo only: fork PRs cannot use organization larger runners.
@@ -144,6 +153,7 @@ jobs:
           grep -qx "rust-version = \"${RUST_TOOLCHAIN}\"" Cargo.toml
           goneat version | grep '^Module: v0\.6\.8$'
           cargo deny --version
+          go version | grep "^go version go${GO_TOOLCHAIN} "
           python3 --version
           python3 -B -E -c 'import yaml'
       - name: make check
@@ -180,6 +190,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
+          go-toolchain: ${{ env.GO_TOOLCHAIN }}
   workflow-lint:
     name: workflow-lint
     runs-on: ubuntu-latest

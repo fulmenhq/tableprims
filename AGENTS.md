@@ -13,6 +13,11 @@ in `docs/xlsx-write.md`. Nothing has been released.
   not exist. `conversions()` lists implemented behaviour only.
 - Keep conversion semantics and policy in `crates/tableprims`. Keep argument
   parsing, terminal output and exit codes in `crates/tableprims-cli`.
+- The Go package `table` (module at the repository root) answers to the same
+  vectors as the Rust library and reports the same category, rule and
+  location. It uses the standard library only and no cgo. A change to the
+  shared document, value or row behaviour lands in both, or the difference is
+  documented in `docs/go.md` and tested.
 - The library crate takes no dependency that only the CLI needs.
 - Expected results for conformance vectors are authored independently of this
   implementation. Never change an expectation to make the implementation pass.
@@ -30,7 +35,8 @@ messages, branches and PR text as permanent public content.
 Run `make check` before committing, `make prepush` before pushing and
 `make pr-final` before opening or updating a PR.
 
-- `make check` is everything CI runs on one host: formatting, Clippy, tests,
+- `make check` is everything CI runs on one host: formatting, Clippy, Rust
+  and Go tests (the Go ones also under the race detector),
   the `tablebolt` smoke run, the dependency rule (`make deps-check`), the
   content check, the licence check of the whole dependency graph
   (`make licenses-check`; cargo-deny leaves out dev-dependencies), version
