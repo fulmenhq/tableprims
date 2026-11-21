@@ -119,7 +119,8 @@ The settings of this command are members of the `tableprims` namespace under
   after the policy document has been read, with `unsupported-representation`,
   `sheet-name-missing`, and exit code 62.
 - The workbook reserves `_tableprims`, in any letter case, for its metadata
-  worksheet. A policy that names it is read and then refused with
+  worksheet. Letter case is judged by Unicode case mapping, so `_tableprimſ`
+  (long s) is reserved too. A policy that names it is read and then refused with
   `unsupported-representation`, `sheet-name-reserved`, and exit code 62. A
   name the workbook cannot hold is refused the same way with
   `sheet-name-unsupported`.

@@ -136,7 +136,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Policy: a worksheet named `_tableprims` in any letter case is read, and
   `tablebolt xlsx write` then refuses it with `unsupported-representation`,
   `sheet-name-reserved` (exit code 62) instead of `invalid-input`,
-  `policy-member-invalid`. The reserved name is
+  `policy-member-invalid`. Letter case is judged by Unicode case mapping
+  instead of ASCII only, so `_tableprimſ` (long s) is also reserved. The
+  reserved name is
   `tableprims_xlsx::metadata::WORKSHEET`; the library constant
   `documents::RESERVED_SHEET` is removed.
 - Result: required `"contract": "tabular-exchange/0.1.0"`. The source digest
