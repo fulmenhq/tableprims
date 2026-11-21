@@ -74,6 +74,10 @@ result fixtures and the 70 matching vectors are not run.
 - `NewRowReader` takes the line limit as an argument and has no default;
   `tablebolt` uses 1 MiB unless the policy sets `max_line_bytes`. The reader
   may read up to 64 KiB past the limit before it refuses the line.
+- The row reader applies no row limit: `too-many-rows` is a rule of the
+  workbook. `tablebolt` refuses a row past `max_rows` before it checks that
+  row against the schema; a Go caller that counts rows itself sees the row's
+  schema refusal first.
 - `ReadSchema` and `ReadPolicy` refuse a document larger than 16 MiB with
   `schema-too-large` or `policy-too-large`, as `tablebolt` does for its files.
 - A schema or plan built in code rather than read from a document is checked
