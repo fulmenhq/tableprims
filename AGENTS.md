@@ -14,8 +14,8 @@ in `docs/xlsx-write.md`. Nothing has been released.
 - Keep conversion semantics and policy in `crates/tableprims`. Keep argument
   parsing, terminal output and exit codes in `crates/tableprims-cli`.
 - The Go package `table` (module at the repository root) answers to the same
-  vectors as the Rust library and reports the same category, rule and
-  location. It uses the standard library only and no cgo. A change to the
+  vectors as the Rust library, with the same category, rule and location on
+  each. It uses the standard library only and no cgo. A change to the
   shared document, value or row behaviour lands in both, or the difference is
   documented in `docs/go.md` and tested.
 - The library crate takes no dependency that only the CLI needs.

@@ -106,10 +106,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Go package `github.com/fulmenhq/tableprims/table` (root `go.mod`, Go 1.26,
   standard library only, no cgo): reads schema and policy documents, values,
   quantization and rows of `tabular-exchange/0.1.0`, and reports every
-  refusal as a `*table.Refusal` with the category, rule, row and column that
-  `tablebolt` reports for the same input. Its tests run the same 477 vendored
-  vectors and fixtures as the Rust tests. It does not write workbooks and has
-  no command-line tool; see `docs/go.md`.
+  refusal as a `*table.Refusal` with its category, rule, row and column. Its
+  tests run the same 477 vendored vectors and fixtures as the Rust tests and
+  meet every expectation. It does not write workbooks and has no
+  command-line tool; `docs/go.md` lists where it differs from `tablebolt`.
 - `make check-go`, `make test-go` (both part of `make check-platform`) and
   `make test-go-race` (part of `make check`). Every CI cell installs or checks
   Go 1.26.10. `make doctor DOCTOR_SCOPE=dev` reports Go.

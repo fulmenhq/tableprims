@@ -220,6 +220,10 @@ func TestReadFailureIsAnIOFailure(t *testing.T) {
 	if refusal.Category() != CategoryIOFailure || refusal.Rule() != "read-failed" || !errors.Is(err, cause) {
 		t.Errorf("%v", err)
 	}
+	// The cause is reachable through Unwrap and is not in the message.
+	if err.Error() != "io-failure: read-failed" {
+		t.Errorf("message: %q", err.Error())
+	}
 	if _, has := refusal.Row(); has {
 		t.Error("a read failure has no row")
 	}

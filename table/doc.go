@@ -22,9 +22,11 @@
 // clock, host time zone or time-zone database is consulted.
 //
 // Every refusal is a [*Refusal], which names the category and the rule
-// identifier the standard registers, and the zero-based row and the column
-// identifier when the refusal has them. A message never contains document
-// or cell content.
+// identifier, and the zero-based row and the column identifier when the
+// refusal has them. Every rule is registered by the standard except
+// read-failed, this package's rule for an error of the underlying reader.
+// Apart from the column identifier, a message contains no document or cell
+// content.
 //
 // Reading performs no file system access and keeps no global state; values
 // of this package are safe for concurrent use once built, except a

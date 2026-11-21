@@ -27,7 +27,9 @@ it does not write workbooks and has no command-line tool. See
 The tests run the standard's value, row and document vectors and its table
 schema and conversion policy fixtures, 477 of the 639 vectors and fixtures in
 the crucible release `v0.5.1`, through the `tablebolt` binary and through the
-Go package, and all agree in both. The conversion result fixtures and the
+Go package, and both meet the expectation of every one, each at the stage
+where it applies. The two are not identical outside these operations: see
+[docs/go.md](docs/go.md#conformance). The conversion result fixtures and the
 matching vectors are not run: neither reads results. See
 [Vectors of the standard](docs/xlsx-write.md#vectors-of-the-standard).
 
