@@ -6,7 +6,7 @@ use std::io::BufRead;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tableprims::binary64;
-use tableprims::documents::{ExactNumberPolicy, Policy, RESERVED_SHEET};
+use tableprims::documents::{ExactNumberPolicy, Policy};
 use tableprims::exact::{DecimalType, RoundingMode};
 use tableprims::ndjson::{Cell, ReadError, RowReader};
 use tableprims::table::{LogicalType, Scalar, Schema, Value};
@@ -93,6 +93,15 @@ fn resolve(
     }
 }
 
+/// Whether a worksheet name is the metadata worksheet's in some letter
+/// case: equal to it once both are uppercased, or once both are lowercased,
+/// by Unicode case mapping. `_tableprimſ` (long s) and `_tableprıms`
+/// (dotless i) are reserved; a workbook compares sheet names without case.
+fn is_reserved(sheet: &str) -> bool {
+    sheet.to_uppercase() == metadata::WORKSHEET.to_uppercase()
+        || sheet.to_lowercase() == metadata::WORKSHEET.to_lowercase()
+}
+
 impl Plan {
     /// Checks a schema and policy against this profile.
     ///
@@ -100,8 +109,9 @@ impl Plan {
     ///
     /// Refuses a schema with more columns than a worksheet, a column
     /// identifier or label longer than a cell, a logical type or rounding
-    /// mode this profile does not know, a policy that names no worksheet, a
-    /// worksheet name a workbook does not allow, a quantize request that
+    /// mode this profile does not know, a policy that names no worksheet or
+    /// names the metadata worksheet, a worksheet name a workbook does not
+    /// allow, a quantize request that
     /// does not fit the schema and a limit above this profile's ceiling.
     pub fn new(schema: &Schema, policy: &Policy) -> Result<Self, WriteError> {
         let columns = schema.columns();
@@ -129,7 +139,7 @@ impl Plan {
         let Some(sheet) = policy.sheet() else {
             return Err(WriteError::new(ErrorKind::SheetNameMissing));
         };
-        if sheet.eq_ignore_ascii_case(RESERVED_SHEET) {
+        if is_reserved(sheet) {
             return Err(WriteError::new(ErrorKind::SheetNameReserved));
         }
         if rust_xlsxwriter::Worksheet::new().set_name(sheet).is_err() {

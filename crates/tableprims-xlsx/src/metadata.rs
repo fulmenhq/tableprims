@@ -34,6 +34,10 @@ use tableprims::table::LogicalType;
 use crate::plan::Scan;
 use crate::PROFILE_ID;
 
+/// Name of the hidden worksheet that holds the records. It is reserved: a
+/// policy may not name it as the data worksheet in any letter case, judged
+/// by Unicode case mapping.
+pub const WORKSHEET: &str = "_tableprims";
 /// Revision of the record layout.
 pub const LAYOUT: &str = "1";
 /// Family name written in the `format` record.

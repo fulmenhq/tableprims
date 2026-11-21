@@ -103,10 +103,10 @@ too large for its member is `schema-member-invalid` or
 The settings of this command are members of the `tableprims` namespace under
 `extensions`:
 
-| Member   | Required | Meaning                                                                        |
-| -------- | -------- | ------------------------------------------------------------------------------ |
-| `sheet`  | yes      | name of the data worksheet; not empty and not `_tableprims` in any letter case |
-| `limits` | no       | `max_rows`, `max_line_bytes` and `max_empty_ranges`, each optional             |
+| Member   | Required | Meaning                                                            |
+| -------- | -------- | ------------------------------------------------------------------ |
+| `sheet`  | yes      | name of the data worksheet, a string that is not empty             |
+| `limits` | no       | `max_rows`, `max_line_bytes` and `max_empty_ranges`, each optional |
 
 - `sheet` or `limits` at the top level of a policy is an unknown member
   (`invalid-input`, `policy-member-unknown`), as is any member of the
@@ -118,6 +118,12 @@ The settings of this command are members of the `tableprims` namespace under
   command cannot run it: a workbook needs a worksheet name. It is refused
   after the policy document has been read, with `unsupported-representation`,
   `sheet-name-missing`, and exit code 62.
+- The workbook reserves `_tableprims`, in any letter case, for its metadata
+  worksheet. Letter case is judged by Unicode case mapping, so `_tableprimſ`
+  (long s) is reserved too. A policy that names it is read and then refused with
+  `unsupported-representation`, `sheet-name-reserved`, and exit code 62. A
+  name the workbook cannot hold is refused the same way with
+  `sheet-name-unsupported`.
 - The standard bounds `extensions` for every reader, and the bounds are
   judged before any namespace is looked up: at most 8 namespaces, at most 256
   values in total, no string or member name longer than 256 code points and

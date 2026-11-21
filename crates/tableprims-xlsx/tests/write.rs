@@ -886,6 +886,38 @@ fn the_plan_refuses_what_a_workbook_cannot_hold() {
             "{sheet}"
         );
     }
+    // The worksheet that holds the table metadata is reserved in any letter
+    // case, by Unicode case mapping: a long s uppercases to S and a dotless
+    // i to I. A name that only contains it is not reserved.
+    let reserved = [
+        "_tableprims",
+        "_TABLEPRIMS",
+        "_TaBlEpRiMs",
+        "_tableprim\u{17f}",
+        "_tablepr\u{131}ms",
+    ];
+    let allowed = ["_tableprims2", "x_tableprims", " _tableprims", "_tableprim"];
+    for sheet in reserved.iter().chain(&allowed) {
+        let policy = format!(
+            r#"{{"format":"tabular-exchange.policy/0","exact_numbers":"require-exact","extensions":{{"tableprims":{{"sheet":"{sheet}"}}}}}}"#
+        );
+        let planned = plan(TEXT, &policy);
+        if reserved.contains(sheet) {
+            let error = planned.unwrap_err();
+            assert_eq!(
+                (error.category(), error.rule(), error.row(), error.column()),
+                (
+                    Category::UnsupportedRepresentation,
+                    "sheet-name-reserved",
+                    None,
+                    None
+                ),
+                "{sheet}"
+            );
+        } else {
+            assert!(planned.is_ok(), "{sheet}");
+        }
+    }
     // A policy that names no worksheet is a complete policy that this
     // destination cannot run.
     for policy in [

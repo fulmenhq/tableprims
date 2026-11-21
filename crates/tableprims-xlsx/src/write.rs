@@ -6,7 +6,6 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use rust_xlsxwriter::{Format, Workbook, XlsxError};
-use tableprims::documents::RESERVED_SHEET;
 use tableprims::table::LogicalType;
 
 use crate::error::{ErrorKind, WriteError};
@@ -223,7 +222,7 @@ impl Scan {
         let sheet = workbook
             .add_worksheet_with_constant_memory()
             .map_err(backend)?;
-        sheet.set_name(RESERVED_SHEET).map_err(backend)?;
+        sheet.set_name(metadata::WORKSHEET).map_err(backend)?;
         sheet.set_hidden(true);
         for (line, record) in metadata::records(self).iter().enumerate() {
             for (at, field) in record.iter().enumerate() {

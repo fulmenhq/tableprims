@@ -57,12 +57,18 @@
 //! is a conversion the author did not ask for. The members of the namespace
 //! are both optional here:
 //!
-//! - `sheet`: the name of the destination sheet. It may not be empty or the
-//!   reserved name [`RESERVED_SHEET`] in any letter case; any further naming
-//!   rule belongs to the destination format, and so does requiring one.
+//! - `sheet`: the name of the destination sheet, a string that is not
+//!   empty. Requiring one, reserving names and any further naming rule
+//!   belong to the destination format.
 //! - `limits`: `max_rows`, `max_line_bytes` and `max_empty_ranges`, each
-//!   optional. A limit is read as written: checking it against the ceilings
-//!   of a particular destination is left to the consumer of the policy.
+//!   optional. A limit is read as written: what it bounds in a particular
+//!   destination, and its ceiling there, are left to the consumer of the
+//!   policy.
+//!
+//! This reader knows every member of the namespace so that it can refuse
+//! any other while the document is read. What a member means to a
+//! destination, and whether the destination needs it, are the
+//! destination's.
 //!
 //! A `sheet` or `limits` member at the top level of a policy is an unknown
 //! member.
@@ -94,10 +100,6 @@ pub const MAX_EXTENSION_VALUES: usize = 256;
 pub const MAX_EXTENSION_STRING: usize = 256;
 /// Largest length of a namespace, in characters.
 pub const MAX_NAMESPACE_LENGTH: usize = 64;
-
-/// Sheet name reserved for table metadata. A policy may not name it as the
-/// destination sheet, in any letter case.
-pub const RESERVED_SHEET: &str = "_tableprims";
 
 /// Deepest nesting of a schema: object, array, object.
 const SCHEMA_MAX_DEPTH: usize = 3;
@@ -561,11 +563,7 @@ fn extensions(value: Json) -> Result<(Option<String>, Limits), DocumentError> {
     let mut members = Members::of(content)?;
     let sheet = match members.take("sheet") {
         None => None,
-        Some(Json::String(sheet))
-            if !sheet.is_empty() && !sheet.eq_ignore_ascii_case(RESERVED_SHEET) =>
-        {
-            Some(sheet)
-        }
+        Some(Json::String(sheet)) if !sheet.is_empty() => Some(sheet),
         Some(_) => return Err(DocumentError::Invalid("sheet")),
     };
     let limits = match members.take("limits") {
@@ -1344,14 +1342,14 @@ mod tests {
                 "{value}"
             );
         }
-        for reserved in ["_tableprims", "_TABLEPRIMS", "_TaBlEpRiMs"] {
-            assert_eq!(
-                policy_namespace(&format!(r#""sheet": "{reserved}""#)),
-                Err(DocumentError::Invalid("sheet")),
-                "{reserved}"
-            );
-        }
-        for allowed in ["tableprims", "_tableprims2", "x_tableprims", " _tableprims"] {
+        // A name a destination reserves is that destination's refusal.
+        for allowed in [
+            "tableprims",
+            "_tableprims",
+            "_TaBlEpRiMs",
+            "_tableprims2",
+            " _tableprims",
+        ] {
             assert_eq!(
                 policy_namespace(&format!(r#""sheet": "{allowed}""#))
                     .unwrap()
