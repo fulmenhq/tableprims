@@ -32,7 +32,9 @@ Run `make check` before committing, `make prepush` before pushing and
 
 - `make check` is everything CI runs on one host: formatting, Clippy, tests,
   the `tablebolt` smoke run, the dependency rule (`make deps-check`), the
-  content check, version sites, workflow digest pins and cargo-deny.
+  content check, the licence check of the whole dependency graph
+  (`make licenses-check`; cargo-deny leaves out dev-dependencies), version
+  sites, workflow digest pins and cargo-deny.
 - `make prepush` adds the minimum supported Rust version build
   (`make msrv-check`), YAML and workflow lint, the tool controls and the
   public-surface scan, which is skipped when no catalog is configured.

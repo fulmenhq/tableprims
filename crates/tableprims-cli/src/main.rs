@@ -38,6 +38,7 @@ mod digest;
 mod identity;
 mod publish;
 mod signals;
+mod telemetry;
 mod xlsx_write;
 
 /// Success.
@@ -58,6 +59,8 @@ struct Cli {
     command: Command,
 }
 
+// Parsed once per process, so the size of the largest variant costs nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Print the tablebolt and tableprims versions.
@@ -101,6 +104,12 @@ enum XlsxCommand {
         /// Identifier copied into the result file. Generated when absent.
         #[arg(long, value_name = "ID", value_parser = xlsx_write::parse_run_id)]
         run_id: Option<String>,
+        /// Directory for process-run telemetry: a card and an event stream.
+        /// Overrides the TABLEBOLT_RUNTIME_DIR environment variable;
+        /// telemetry is off when neither is set. It never affects the
+        /// result or the exit code.
+        #[arg(long, value_name = "DIR")]
+        runtime_dir: Option<PathBuf>,
     },
 }
 
@@ -122,6 +131,7 @@ fn main() -> ExitCode {
                     output,
                     result,
                     run_id,
+                    runtime_dir,
                 },
         } => {
             let files = xlsx_write::Files {
@@ -131,7 +141,8 @@ fn main() -> ExitCode {
                 output,
                 result,
             };
-            let (code, line) = xlsx_write::run(&files, run_id);
+            let runtime_dir = telemetry::runtime_dir(runtime_dir);
+            let (code, line) = xlsx_write::run(&files, run_id, runtime_dir.as_deref());
             if let Some(line) = line {
                 diagnostic(&format!("{}: {line}\n", identity::BINARY_NAME));
             }

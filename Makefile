@@ -16,7 +16,7 @@ TABLEBOLT := target/debug/tablebolt
 
 .DEFAULT_GOAL := help
 .PHONY: all help check check-platform precommit prepush pr-final fmt fmt-check lint lint-yaml lint-workflows \
-        test smoke msrv-check deps-check deps-check-test deny surface-scan content-check surface-tests \
+        test smoke msrv-check deps-check deps-check-test deny surface-scan content-check licenses-check surface-tests \
         workflow-pin release-tooling-test checklist-targets doctor doctor-test release-ceremony-test \
         release-export-pin release-validate-pin release-insert-anchors release-github-preflight \
         release-preflight release-prepare-tag-message release-tag release-push-tag release-verify-tag \
@@ -28,7 +28,7 @@ all: check
 help: ## Show available targets
 	@awk 'BEGIN{FS=":.*## "} /^[a-z][a-z0-9-]*:.*## /{printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-check-platform: fmt-check lint test smoke deps-check content-check surface-tests checklist-targets version-check ## Platform-native subset of check (no cargo-deny or PyYAML required)
+check-platform: fmt-check lint test smoke deps-check content-check licenses-check surface-tests checklist-targets version-check ## Platform-native subset of check (no cargo-deny or PyYAML required)
 
 check: check-platform workflow-pin release-tooling-test deny ## Everything CI runs on one host
 	@echo "[ok] check"
@@ -56,6 +56,10 @@ surface-scan: ## Public-surface scan (tree, commit messages, PR text, branch) wh
 # in CI as part of check.
 content-check: ## Refuse local paths, private keys, tokens and commit markers in tracked files
 	@$(PYTHON) -I -B scripts/content-check.py
+
+licenses-check: ## Licence of every package in the resolved graph, dev-dependencies included
+	@$(PYTHON) -I -B scripts/licenses-check.py
+	@PYTHON=$(PYTHON) scripts/licenses-check.test.sh
 
 surface-tests: ## Controls for content-check and the surface scan (the scan suite skips without limensafe)
 	@PYTHON=$(PYTHON) scripts/content-check.test.sh

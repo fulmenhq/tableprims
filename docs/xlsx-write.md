@@ -301,6 +301,95 @@ recorded. Rows cut before the closing bracket of the last line are refused:
 `malformed-row`, or `invalid-utf8` when the cut splits a character. A cut
 that removes only whitespace after the bracket changes nothing that is read.
 
+## Telemetry
+
+A run can report its progress to a supervisor through the process-run
+contract of 3leaps Crucible, `contract: process-run/v0`
+([standard](https://github.com/3leaps/crucible/blob/3636a79f7ea507bccfa6534655764d7b36c2ea05/docs/standards/process-run-contract.md),
+a draft; the record adopting it upstream is proposed). Only telemetry is
+implemented: there is no control socket, key file or control verb.
+
+Telemetry is off unless a runtime directory is given. `--runtime-dir DIR`
+names it; without the flag, the environment variable `TABLEBOLT_RUNTIME_DIR`
+does; a blank value counts as unset. There is no default directory. When a
+configuration file is added, its key will be `runtime_dir`, below the flag
+and the environment variable. Telemetry never affects the workbook, the
+result file or the exit code, and its presence or absence is no evidence
+that a conversion completed: only a matching result is.
+
+With a runtime directory, the run identifier cannot end in `.` (which covers
+`.` and `..`; Windows would drop the dot) or be a name Windows reserves for a
+device (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, in
+any case, with or without an extension); such a run ends with code 64 before
+anything is written.
+
+| File                          | Content                                                          |
+| ----------------------------- | ---------------------------------------------------------------- |
+| `DIR/proc/<run_id>/card.json` | the card: identity, producer and the absolute path of the stream |
+| `DIR/events/<run_id>.ndjson`  | the event stream, one JSON object per line                       |
+
+The card is checked against the closed subset of the contract's card
+schema that this program writes (no control channel, an absolute stream
+path, a UTC start time) before anything of the run is created. It is
+published under its name only after `started` is in the stream, and
+removed when the run ends, including a run stopped by a signal. A run
+killed outright leaves it behind; the contract calls such a card stale. The
+stream is kept. `started_at` on the card is the time the run recorded as
+it began, shortly after the process started, not the operating system's
+start time. Paired with the pid it helps a consumer find the run, but it
+cannot prove the process is the same one: a consumer that cannot check the
+pair against the operating system treats the identity as unverified. The
+card grants no control over the run.
+
+Telemetry gives way to the conversion: if a file or directory it would
+create could be one of the run's inputs, its workbook or its result (the
+same entry by another spelling, through a link, or differing only in
+letter case), or a directory it would create would contain one of them,
+the run has no telemetry.
+
+Directories this program creates are owner-only (0700) and files owner
+read-write (0600) on Unix; an existing runtime directory, `proc` or
+`events` directory is used as it is. On Windows the files inherit the
+runtime directory's permissions and are not owner-only. The runtime
+directory is trusted, as the destination is. A stream is created only if no
+file has its name, and a card directory only if none exists for the run
+identifier; otherwise what is there is left untouched and the run has no
+telemetry. If the card cannot be published, the stream this run began is
+removed.
+
+Telemetry fails open: if a directory or file cannot be created or written,
+the run continues without it and says nothing. Writing happens on a
+separate thread, and the end of a run waits at most two seconds for the
+last event. If that thread is still setting up or writing when the wait
+ends, the process exits without it: a card already published is left
+stale and the stream has no terminal event, as for a run that is killed.
+A file system that blocks that thread outright, such as a hung network
+mount, can still delay the exit of the process.
+
+### Profile `tableprims.xlsx-write-run/v0`
+
+Every event carries the contract's envelope (`ts` in UTC with milliseconds,
+`event`, `run_id`, `seq` from 0, `severity`, `pid`); `started` also carries
+the producer. The `data` members are:
+
+| Event       | Severity | `data`                                                                                                                                                        |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `started`   | INFO     | `profile_id` (`xlsx-write/r1`); `source_bytes`, the rows file's length, when it is a regular file                                                             |
+| `progress`  | INFO     | `phase` (`scan` or `write`, the first or second read of the rows), `done` and, when known, `total`, in `unit` `bytes`; at most once a second while bytes move |
+| `heartbeat` | INFO     | `phase` and `done`; after 5 seconds with no other event                                                                                                       |
+| `completed` | INFO     | `status` `ok`, `rows`, and the workbook's `output` digest and length                                                                                          |
+| `canceled`  | WARN     | `status` `cancelled`, `reason` `SIGINT` or `SIGTERM`                                                                                                          |
+| `failed`    | ERROR    | `status` `refused` or `failed`, `reason` `<category>/<rule>`                                                                                                  |
+
+The last event is the terminal one, written after the result file. It is
+`completed` or `canceled` only when a result with status `ok` or
+`cancelled` was published; a run whose result could not be published ends
+with `failed` and reason `io-failure/result-write-failed`. A run killed
+outright, or ended by a second signal, leaves a stream with no terminal
+event. No event carries cell content or a path; the card holds the one
+path, to the stream. Terminal events carry no `data.artifacts`: there is no
+artifact descriptor to point at.
+
 ## Vectors of the standard
 
 The vectors, fixtures and JSON Schemas of contract revision

@@ -94,6 +94,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ends by that signal on Unix (a shell reports 130 or 143) or exits 130 on
   Windows. A second signal ends the process at once. Adds `signal-hook` to
   the CLI package. ADR-0003 records this and supersedes rule 7 of ADR-0002.
+- `tablebolt xlsx write --runtime-dir DIR` (or `TABLEBOLT_RUNTIME_DIR`)
+  reports the run through the process-run contract of 3leaps Crucible,
+  telemetry only: a card and an event stream with `started`, `progress`,
+  `heartbeat` and one terminal event. Off by default and fail-open; it never
+  affects the result or the exit code. With a runtime directory, a run
+  identifier ending in `.` or naming a Windows device is a usage error. The contract's schemas and examples
+  are vendored unedited from 3leaps/crucible `v0.2.12` (CC0-1.0) under
+  `third_party/3leaps-crucible/`, and the tests validate the card and every
+  event against them with `jsonschema`, a new test-only dependency.
+- `make licenses-check` (part of `make check`): every package in the
+  resolved graph, dev-dependencies included, against the licence allow list
+  in `deny.toml`, which now admits MIT-0.
 
 ### Changed
 

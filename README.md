@@ -16,7 +16,8 @@ follow the Tabular Exchange Standard, contract revision
 and the members under the `tableprims` extension namespace are provisional and
 may change before the first release. Workbooks have been checked by reading them
 back with an independent parser, not by opening them in a spreadsheet
-application.
+application. A run can report its progress through the process-run contract
+of 3leaps Crucible, telemetry only, when given a runtime directory.
 
 The tests run the standard's value, row and document vectors and its table
 schema and conversion policy fixtures, 477 of the 639 vectors and fixtures in
@@ -41,12 +42,13 @@ IPC and Parquet adapters are planned against the same typed contract.
 
 ## Layout
 
-| Path                    | Contents                                         |
-| ----------------------- | ------------------------------------------------ |
-| `crates/tableprims`     | Rust library: conversion semantics and policy    |
-| `crates/tableprims-cli` | Thin CLI package; builds the `tablebolt` binary  |
-| `crates/tableprims-xlsx` | XLSX write adapter                               |
-| `third_party/crucible`  | Vectors, fixtures and schemas of the standard, vendored unedited |
+| Path                          | Contents                                                         |
+| ----------------------------- | ---------------------------------------------------------------- |
+| `crates/tableprims`           | Rust library: conversion semantics and policy                    |
+| `crates/tableprims-cli`       | Thin CLI package; builds the `tablebolt` binary                  |
+| `crates/tableprims-xlsx`      | XLSX write adapter                                               |
+| `third_party/crucible`        | Vectors, fixtures and schemas of the standard, vendored unedited |
+| `third_party/3leaps-crucible` | Process-run schemas and examples, vendored unedited              |
 
 ## Language surfaces
 

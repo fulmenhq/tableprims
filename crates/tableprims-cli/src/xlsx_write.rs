@@ -16,6 +16,7 @@
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
 use tableprims::documents::{
@@ -27,6 +28,7 @@ use crate::digest::{self, HashingReader, HashingWriter, Sum};
 use crate::identity;
 use crate::publish::{directory, links, same_entry, Pending};
 use crate::signals::Signals;
+use crate::telemetry::{self, Phase, Progress, Telemetry, Terminal};
 
 /// Format identifier of the result file.
 pub(crate) const RESULT_FORMAT: &str = "tabular-exchange.result/0";
@@ -360,15 +362,21 @@ fn read_document(
         .map_err(|_| Failure::new(Category::InvalidInput, rules.not_utf8, EXIT_PARSE_ERROR))
 }
 
-fn open_rows(path: &Path) -> Result<BufReader<HashingReader<File>>, Failure> {
+type Rows = BufReader<HashingReader<telemetry::Counting<File>>>;
+
+fn open_rows(path: &Path, progress: &Arc<Progress>) -> Result<Rows, Failure> {
     let file = File::open(path).map_err(|error| read_failure(&ROWS, &error))?;
-    Ok(BufReader::with_capacity(64 << 10, HashingReader::new(file)))
+    Ok(BufReader::with_capacity(
+        64 << 10,
+        HashingReader::new(progress.reader(file)),
+    ))
 }
 
 fn convert(
     files: &Files,
     token: &str,
     signals: &Signals,
+    progress: &Arc<Progress>,
     report: &mut Report,
 ) -> Result<Done, Failure> {
     if files.output.exists() {
@@ -394,7 +402,8 @@ fn convert(
 
     // A signal sets this flag; both reads check it before every row.
     let cancel = signals.flag();
-    let mut first = open_rows(&files.input)?;
+    progress.phase(Phase::Scan);
+    let mut first = open_rows(&files.input, progress)?;
     let scan = plan
         .scan(&mut first, cancel)
         .map_err(|error| adapter_failure(&error))?;
@@ -407,7 +416,8 @@ fn convert(
     let (pending, file) = Pending::create(&files.output, token, "workbook")
         .map_err(|error| write_failure("output-create-failed", &error))?;
     let mut sink = HashingWriter::new(BufWriter::new(file));
-    let mut second = open_rows(&files.input)?;
+    progress.phase(Phase::Write);
+    let mut second = open_rows(&files.input, progress)?;
     // Row data is staged beside the destination and nowhere else.
     let staging = directory(&files.output);
     let outcome = scan
@@ -552,6 +562,35 @@ fn publish_result(pending: Pending, mut file: File, result: &Value) -> io::Resul
     pending.publish()
 }
 
+/// The terminal telemetry event for how the run ended. Only a published
+/// result says the run completed or was cancelled.
+fn terminal(end: &Result<Done, Failure>, published: bool) -> Terminal {
+    match end {
+        _ if !published => Terminal::Failed {
+            status: "failed",
+            category: Category::IoFailure.as_str(),
+            rule: "result-write-failed",
+        },
+        Ok(done) => Terminal::Completed {
+            rows: done.outcome.rows,
+            sha256: done.output.sha256.clone(),
+            bytes: done.output.bytes,
+        },
+        Err(failure) if failure.status() == "cancelled" => Terminal::Canceled {
+            signal: if failure.exit == EXIT_SIGNAL_TERM {
+                "SIGTERM"
+            } else {
+                "SIGINT"
+            },
+        },
+        Err(failure) => Terminal::Failed {
+            status: failure.status(),
+            category: failure.category,
+            rule: failure.rule,
+        },
+    }
+}
+
 /// 16 bytes from the operating system as lowercase hexadecimal.
 fn random_token() -> Result<String, getrandom::Error> {
     let mut bytes = [0_u8; 16];
@@ -572,7 +611,13 @@ pub(crate) fn parse_run_id(text: &str) -> Result<String, String> {
 }
 
 /// Runs the conversion and returns the exit code and a diagnostic line.
-pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>) {
+pub(crate) fn run(
+    files: &Files,
+    run_id: Option<String>,
+    runtime_dir: Option<&Path>,
+) -> (u8, Option<String>) {
+    // As close to the start of the program as this run can record.
+    let started = std::time::SystemTime::now();
     let signals = match Signals::install() {
         Ok(signals) => signals,
         Err(error) => {
@@ -594,6 +639,14 @@ pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>)
         );
     };
     let run_id = run_id.unwrap_or_else(|| format!("auto-{token}"));
+    if runtime_dir.is_some() && !telemetry::usable_run_id(&run_id) {
+        return (
+            EXIT_USAGE,
+            Some(String::from(
+                "with a runtime directory, the run identifier cannot end in '.' or be a Windows device name",
+            )),
+        );
+    }
     if same_entry(&files.output, &files.result) {
         return (
             EXIT_USAGE,
@@ -628,6 +681,19 @@ pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>)
         );
     }
     let mut report = Report::default();
+    // The length of the rows, when they are a regular file, for progress.
+    let total = std::fs::metadata(&files.input)
+        .ok()
+        .filter(std::fs::Metadata::is_file)
+        .map(|metadata| metadata.len());
+    let avoid = vec![
+        files.input.clone(),
+        files.schema.clone(),
+        files.policy.clone(),
+        files.output.clone(),
+        files.result.clone(),
+    ];
+    let telemetry = Telemetry::start(runtime_dir, &run_id, total, started, avoid);
     let end = match links(&files.output, &token, "workbook") {
         Ok(false) => Err(Failure::new(
             Category::IoFailure,
@@ -636,7 +702,7 @@ pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>)
         )),
         // Anything else wrong with the directory is reported by the step
         // that needs it.
-        _ => convert(files, &token, &signals, &mut report),
+        _ => convert(files, &token, &signals, telemetry.progress(), &mut report),
     };
     // A stopped run exits with the code of the signal that stopped it.
     let end = end.map_err(|failure| {
@@ -650,7 +716,9 @@ pub(crate) fn run(files: &Files, run_id: Option<String>) -> (u8, Option<String>)
         }
     });
     let result = result_json(&run_id, &report, &end);
-    if let Err(error) = publish_result(pending, file, &result) {
+    let published = publish_result(pending, file, &result);
+    telemetry.finish(terminal(&end, published.is_ok()));
+    if let Err(error) = published {
         let exit = write_failure("result-write-failed", &error).exit;
         // A workbook without its result is incomplete. It is left where it
         // is: by now the name may refer to a file that is not this run's.

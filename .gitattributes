@@ -6,3 +6,5 @@
 # tests.
 /third_party/crucible/SHA256SUMS -text
 /third_party/crucible/v0.5.1/** -text
+/third_party/3leaps-crucible/SHA256SUMS -text
+/third_party/3leaps-crucible/v0.2.12/** -text
