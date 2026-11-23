@@ -5,6 +5,11 @@
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 CARGO ?= cargo
+GO ?= go
+# The Go module builds without cgo and never fetches a toolchain; the race
+# detector needs cgo.
+GOENV := GOWORK=off GOFLAGS=-mod=readonly GOTOOLCHAIN=local CGO_ENABLED=0
+GOENV_RACE := GOWORK=off GOFLAGS=-mod=readonly GOTOOLCHAIN=local CGO_ENABLED=1
 PYTHON ?= $(shell for p in python3 python3.14 python3.13 python3.12; do if command -v $$p >/dev/null 2>&1 && $$p -P -B -E -c 'import yaml' >/dev/null 2>&1; then echo $$p; exit 0; fi; done; echo python3)
 export PYTHON
 YAMLFMT ?= yamlfmt
@@ -16,7 +21,7 @@ TABLEBOLT := target/debug/tablebolt
 
 .DEFAULT_GOAL := help
 .PHONY: all help check check-platform precommit prepush pr-final fmt fmt-check lint lint-yaml lint-workflows \
-        test smoke msrv-check deps-check deps-check-test deny surface-scan content-check licenses-check surface-tests \
+        test smoke check-go test-go test-go-race msrv-check deps-check deps-check-test deny surface-scan content-check licenses-check surface-tests \
         workflow-pin release-tooling-test checklist-targets doctor doctor-test release-ceremony-test \
         release-export-pin release-validate-pin release-insert-anchors release-github-preflight \
         release-preflight release-prepare-tag-message release-tag release-push-tag release-verify-tag \
@@ -28,9 +33,9 @@ all: check
 help: ## Show available targets
 	@awk 'BEGIN{FS=":.*## "} /^[a-z][a-z0-9-]*:.*## /{printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-check-platform: fmt-check lint test smoke deps-check content-check licenses-check surface-tests checklist-targets version-check ## Platform-native subset of check (no cargo-deny or PyYAML required)
+check-platform: fmt-check lint test check-go test-go smoke deps-check content-check licenses-check surface-tests checklist-targets version-check ## Platform-native subset of check (no cargo-deny or PyYAML required)
 
-check: check-platform workflow-pin release-tooling-test deny ## Everything CI runs on one host
+check: check-platform test-go-race workflow-pin release-tooling-test deny ## Everything CI runs on one host
 	@echo "[ok] check"
 
 precommit: fmt-check lint ## Fast pre-commit gate
@@ -186,8 +191,9 @@ release-insert-anchors: ## Derive the fingerprint anchors with decernor (refuses
 doctor: ## Report host tool versions against the recommended minimums (DOCTOR_SCOPE=release|dev)
 	@scripts/doctor.sh $(or $(DOCTOR_SCOPE),release)
 
-fmt: ## Format Rust sources
+fmt: ## Format Rust and Go sources
 	$(CARGO) fmt --all
+	gofmt -w table
 
 fmt-check: ## Check formatting
 	$(CARGO) fmt --all -- --check
@@ -204,6 +210,17 @@ lint-workflows: ## actionlint on the workflows
 
 test: ## Rust tests
 	$(CARGO) test --locked --workspace
+
+check-go: ## Go: gofmt, vet and a cgo-free build of the root module
+	@out="$$(gofmt -l table)"; if [ -n "$$out" ]; then echo "gofmt: $$out" >&2; exit 1; fi
+	$(GOENV) $(GO) vet ./...
+	$(GOENV) $(GO) build ./...
+
+test-go: ## Go tests, the conformance vectors included, without cgo
+	$(GOENV) $(GO) test -count=1 ./...
+
+test-go-race: ## Go tests under the race detector (needs cgo and a C compiler)
+	$(GOENV_RACE) $(GO) test -race -count=1 ./...
 
 smoke: build ## Run the built tablebolt binary and check its exit codes
 	$(TABLEBOLT) version --json

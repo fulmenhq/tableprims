@@ -103,6 +103,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are vendored unedited from 3leaps/crucible `v0.2.12` (CC0-1.0) under
   `third_party/3leaps-crucible/`, and the tests validate the card and every
   event against them with `jsonschema`, a new test-only dependency.
+- Go package `github.com/fulmenhq/tableprims/table` (root `go.mod`, Go 1.26,
+  standard library only, no cgo): reads schema and policy documents, values,
+  quantization and rows of `tabular-exchange/0.1.0`, and reports every
+  refusal as a `*table.Refusal` with its category, rule, row and column. Its
+  tests run the same 477 vendored vectors and fixtures as the Rust tests and
+  meet every expectation. It does not write workbooks and has no
+  command-line tool; `docs/go.md` lists where it differs from `tablebolt`.
+- `make check-go`, `make test-go` (both part of `make check-platform`) and
+  `make test-go-race` (part of `make check`). Every CI cell installs or checks
+  Go 1.26.10. `make doctor DOCTOR_SCOPE=dev` reports Go.
 - `make licenses-check` (part of `make check`): every package in the
   resolved graph, dev-dependencies included, against the licence allow list
   in `deny.toml`, which now admits MIT-0.

@@ -17,7 +17,7 @@ scopes:
     tools: [git, gh, jq, python3, gpg, minisign]
   dev:
     description: Host tools for make check and the release-tooling controls
-    tools: [git, jq, python3, cargo]
+    tools: [git, jq, python3, cargo, go]
 tools:
   git:
     name: git
@@ -103,3 +103,15 @@ tools:
       windows: [manual]
     version_scheme: semver
     minimum_version: 1.88.0
+  go:
+    name: go
+    description: Go toolchain for the root Go module (the go directive of go.mod)
+    kind: system
+    detect_command: go version
+    platforms: [darwin, linux, windows]
+    installer_priority:
+      darwin: [manual]
+      linux: [manual]
+      windows: [manual]
+    version_scheme: semver
+    minimum_version: 1.26.0

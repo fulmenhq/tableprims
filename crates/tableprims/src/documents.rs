@@ -74,6 +74,7 @@
 //! member.
 
 use core::fmt;
+use std::collections::{HashMap, HashSet};
 
 use crate::exact::{DecimalType, RoundingMode, MAX_DIGITS};
 use crate::json::{parse_document, Json, JsonError};
@@ -408,11 +409,15 @@ impl Policy {
         schema: &Schema,
     ) -> Result<Vec<Option<(DecimalType, RoundingMode)>>, DocumentError> {
         let mut plan = vec![None; schema.columns().len()];
+        let positions: HashMap<&str, usize> = schema
+            .columns()
+            .iter()
+            .enumerate()
+            .map(|(at, column)| (column.id(), at))
+            .collect();
         for request in &self.quantize {
-            let at = schema
-                .columns()
-                .iter()
-                .position(|column| column.id() == request.column)
+            let at = *positions
+                .get(request.column.as_str())
                 .ok_or(DocumentError::QuantizeUnknownColumn)?;
             let LogicalType::Decimal(declared) = schema.columns()[at].logical_type() else {
                 return Err(DocumentError::QuantizeNotDecimal);
@@ -445,9 +450,12 @@ pub fn parse_policy(text: &str) -> Result<Policy, DocumentError> {
     match members.take("quantize") {
         None => {}
         Some(Json::Array(entries)) => {
+            // The set finds a repeated column in constant time; the vector
+            // keeps the order written.
+            let mut seen = HashSet::with_capacity(entries.len());
             for entry in entries {
                 let request = quantize_entry(entry)?;
-                if quantize.iter().any(|seen| seen.column == request.column) {
+                if !seen.insert(request.column.clone()) {
                     return Err(DocumentError::DuplicateQuantize);
                 }
                 quantize.push(request);

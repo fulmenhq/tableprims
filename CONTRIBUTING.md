@@ -17,13 +17,15 @@ typed contract and independently derived expected results.
 
 ## Checks
 
-Install Rust 1.88.0 or newer, Make, Git and Python 3.11 or newer, then run:
+Install Rust 1.88.0 or newer, Go 1.26 or newer, Make, Git and Python 3.11 or
+newer, then run:
 
 ```sh
 make check-platform
 ```
 
-This checks formatting, runs Clippy with warnings denied, runs the tests, runs
+This checks formatting, runs Clippy with warnings denied, runs the Rust and
+Go tests (the Go ones with `CGO_ENABLED=0`), runs
 the built `tablebolt` binary, and checks the dependency rule, tracked
 files for local paths, keys and tokens, and that every version site matches
 `VERSION`.
