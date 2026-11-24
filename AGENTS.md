@@ -15,9 +15,11 @@ Experimental; v0.1.0 is the first release. One conversion is implemented:
   parsing, terminal output and exit codes in `crates/tableprims-cli`.
 - The Go package `table` (module at the repository root) answers to the same
   vectors as the Rust library, with the same category, rule and location on
-  each. It uses the standard library only and no cgo. A change to the
-  shared document, value or row behaviour lands in both, or the difference is
-  documented in `docs/go.md` and tested.
+  each. It uses the standard library only and no cgo. Both implementations
+  are locked: a change to the shared document, value or row behaviour, or to
+  the vendored vectors, lands in the Rust library, the Go package and their
+  tests in the same pull request. Workbook writing and the binary64 decision
+  are Rust only; `docs/go.md` lists the differences.
 - The library crate takes no dependency that only the CLI needs.
 - Expected results for conformance vectors are authored independently of this
   implementation. Never change an expectation to make the implementation pass.

@@ -96,6 +96,8 @@ verification checks the pin in the tagged commit. To change one:
   tag). Every `## [x.y.z]` heading needs its footer definition.
 - [ ] `docs/releases/vX.Y.Z.md`: the notes for this release, starting with
   `# vX.Y.Z`.
+- [ ] `RELEASE_NOTES.md`: add the release at the top and keep only the latest
+  three.
 - [ ] Read `README.md` through and correct anything the release changes
   (status, language surfaces, supported platforms and toolchains).
 - [ ] Merge the release pack with an exact squash message whose body ends with

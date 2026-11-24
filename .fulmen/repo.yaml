@@ -20,3 +20,9 @@ extensions:
   - id: cli-binary-name
     scope: cli
     reason: "the tableprims-cli package builds a binary named tablebolt; it is a thin consumer of the library"
+  - id: xlsx-write
+    scope: rust-only
+    reason: "the XLSX workbook adapter (crates/tableprims-xlsx) has no Go counterpart; the Go package does not write workbooks"
+  - id: binary64-decision
+    scope: rust-only
+    reason: "deciding a binary64 representation for an exact number is in the Rust library only; the Go package exposes no such operation"
