@@ -6,8 +6,8 @@ Exchange Standard, contract revision `tabular-exchange/0.1.0`, published in
 [fulmenhq/crucible](https://github.com/fulmenhq/crucible). It is pure Go: the
 standard library only, no cgo, and no wrapper of the Rust library
 ([ADR-0001](decisions/ADR-0001-library-first-rust-and-go.md)). The module is the
-repository root and is released with the Rust crates under one tag; no
-release has been made.
+repository root and is released with the Rust crates under one tag, first
+`v0.1.0`.
 
 ## What it covers
 

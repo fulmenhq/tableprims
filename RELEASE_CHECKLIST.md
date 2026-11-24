@@ -1,8 +1,6 @@
 # Release Checklist
 
-How a maintainer cuts a tableprims release. No release has been made, and one
-cannot be made yet: the tag tooling requires the root Go module, which does
-not exist (see [Before the first release](#before-the-first-release)).
+How a maintainer cuts a tableprims release.
 
 A release is one signed annotated tag, `vX.Y.Z`, at a commit of `main`; it
 releases the Rust crates and the root Go module together. The signing material
@@ -44,13 +42,13 @@ no signing, release or registry authority.
   repository whose name equals `$TABLEPRIMS_RELEASE_TAG`. A bare `RELEASE_TAG`
   is refused by `make`.
 
-## Before the first release
+## Scope
 
-- [ ] The root Go module exists: `go.mod` at the repository root declaring
-  `github.com/fulmenhq/tableprims`. Tag creation and tag verification refuse
-  a commit without it.
-- [ ] `Cargo.toml` no longer sets `publish = false` if the release is meant
-  to reach a registry. Registry publication is not covered here.
+- The root Go module, `go.mod` at the repository root declaring
+  `github.com/fulmenhq/tableprims`, is required: tag creation and tag
+  verification refuse a commit without it.
+- The crates set `publish = false`; registry publication is not covered
+  here.
 
 ## Public pins
 
@@ -98,6 +96,8 @@ verification checks the pin in the tagged commit. To change one:
   tag). Every `## [x.y.z]` heading needs its footer definition.
 - [ ] `docs/releases/vX.Y.Z.md`: the notes for this release, starting with
   `# vX.Y.Z`.
+- [ ] `RELEASE_NOTES.md`: add the release at the top and keep only the latest
+  three.
 - [ ] Read `README.md` through and correct anything the release changes
   (status, language surfaces, supported platforms and toolchains).
 - [ ] Merge the release pack with an exact squash message whose body ends with

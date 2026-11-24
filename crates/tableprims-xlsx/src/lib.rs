@@ -42,8 +42,7 @@
 //! `tabular-exchange/0.1.0`, published in fulmenhq/crucible; the rules of
 //! this profile are its own.
 //!
-//! The workbook layout is provisional and may change before the first
-//! release.
+//! The workbook layout is provisional and may change in a later release.
 
 mod error;
 pub mod metadata;

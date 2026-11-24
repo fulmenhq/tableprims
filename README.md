@@ -7,14 +7,14 @@ Typed tabular conversion library, with a thin command-line tool named
 
 ## Status
 
-This repository is experimental and has made no release. One conversion is
+This repository is experimental; v0.1.0 is its first release. One conversion is
 implemented: `tablebolt xlsx write` writes typed rows to an XLSX workbook; see
 [docs/xlsx-write.md](docs/xlsx-write.md). Its rows, schema, policy and result
 follow the Tabular Exchange Standard, contract revision
 `tabular-exchange/0.1.0`, published in
 [fulmenhq/crucible](https://github.com/fulmenhq/crucible); the workbook layout
 and the members under the `tableprims` extension namespace are provisional and
-may change before the first release. Workbooks have been checked by reading them
+may change in a later release. Workbooks have been checked by reading them
 back with an independent parser, not by opening them in a spreadsheet
 application. A run can report its progress through the process-run contract
 of 3leaps Crucible, telemetry only, when given a runtime directory.
@@ -60,17 +60,18 @@ IPC and Parquet adapters are planned against the same typed contract.
 
 ## Language surfaces
 
-| Surface    | Package                           | Status  |
-| ---------- | --------------------------------- | ------- |
-| Rust       | `tableprims` (crates.io)          | planned |
-| Go         | `github.com/fulmenhq/tableprims`  | planned |
-| TypeScript | to be named                       | planned |
-| Python     | `tableprims` (PyPI)               | planned |
+| Surface    | Package                          | Status                                |
+| ---------- | -------------------------------- | ------------------------------------- |
+| Rust       | `tableprims`                     | released (`v0.1.0`); not on crates.io |
+| Go         | `github.com/fulmenhq/tableprims` | released (`v0.1.0`)                   |
+| TypeScript | to be named                      | planned                               |
+| Python     | `tableprims` (PyPI)              | planned                               |
 
 Rust is the first implementation. The Go surface is a pure-Go library
 (`CGO_ENABLED=0`, standard library only) that reads documents, values and
 rows and answers to the same conformance vectors; it does not write
-workbooks. No package has been published.
+workbooks. A release is a signed tag of this repository: the Go module
+resolves by that tag, and the Rust crates are not published to a registry.
 
 ## Development
 
@@ -86,8 +87,7 @@ make help            # every target
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). The release
 process is in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) and the release
-trust model in [docs/security/README.md](docs/security/README.md); no release
-has been made.
+trust model in [docs/security/README.md](docs/security/README.md).
 
 ## License
 

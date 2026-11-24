@@ -1,6 +1,6 @@
 # Contributing
 
-tableprims is experimental and unreleased; see the [README](README.md) for
+tableprims is experimental; see the [README](README.md) for
 status and [docs/decisions](docs/decisions/README.md) for the decisions that
 bind changes.
 Useful contributions now are concrete conversion examples, questions about the
@@ -13,6 +13,9 @@ typed contract and independently derived expected results.
   [Sensitive Local Data Policy](https://github.com/3leaps/oss-policies/blob/dee9d320f5b7045a44c92b200cc1c92ca83ae843/SENSITIVE-LOCAL-DATA.md).
 - Dependencies must carry a permissive license accepted by `deny.toml`.
   Copyleft licenses are not accepted, and an unknown license fails the check.
+- The Rust library and the Go package `table` are locked: a change to the
+  shared document, value or row behaviour, or to the vendored vectors, changes
+  both implementations and their tests in the same pull request.
 - Proposed changes need maintainer review.
 
 ## Checks

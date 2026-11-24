@@ -4,15 +4,15 @@
 schema: "contract:taxonomy/v0/repo-declaration.schema.json"
 class: prims
 profile: B  # parallel pure-Go and Rust implementations sharing one contract
-profile_status: bootstrapping  # operating tree: Rust (named in README)
+profile_status: locked  # the Rust and Go trees meet the same 477 vectors of tabular-exchange/0.1.0
 leaf: true  # depends on no other prim
 category: library
 env_prefix: TABLEBOLT_
 umbrella_prefix: null
 surfaces: [library, cli]
 bindings:
-  rust: planned  # tableprims (crates.io); first implementation
-  go: planned  # github.com/fulmenhq/tableprims (in-tree pure-Go twin, CGO_ENABLED=0)
+  rust: shipped  # tableprims, by tag; not published to crates.io (publish = false)
+  go: shipped  # github.com/fulmenhq/tableprims (in-tree pure-Go twin, CGO_ENABLED=0)
   typescript: planned  # from the Rust tree
   python: planned  # from the Rust tree
 target_registries: [crates_io, go_proxy, npm, pypi]
@@ -20,3 +20,9 @@ extensions:
   - id: cli-binary-name
     scope: cli
     reason: "the tableprims-cli package builds a binary named tablebolt; it is a thin consumer of the library"
+  - id: xlsx-write
+    scope: rust-only
+    reason: "the XLSX workbook adapter (crates/tableprims-xlsx) has no Go counterpart"
+  - id: binary64-decision
+    scope: rust-only
+    reason: "the binary64 representation decision is in the Rust library only"

@@ -15,7 +15,7 @@
 //! The source value stays the authority: these functions return the
 //! binary64 value to store and never a value read back from it. Decimal
 //! comparison is done on digit strings, not through floating point. The
-//! rules are provisional and may change before the first release.
+//! rules are provisional and may change in a later release.
 
 use core::fmt;
 

@@ -1,6 +1,6 @@
 # Release Signing and Verification
 
-tableprims has not been released. This page states the release trust model
+This page states the tableprims release trust model
 and its trust files. The signing pins and fingerprint anchors are committed
 and change only through review.
 
@@ -8,9 +8,8 @@ and change only through review.
 
 A release is one signed annotated tag, `vX.Y.Z`, at a commit of `main`. It
 releases the Rust crates and the root Go module
-(`github.com/fulmenhq/tableprims`) together. The Go module does not exist yet,
-and the tag tooling refuses a commit without it, so no release tag can be
-created until it lands.
+(`github.com/fulmenhq/tableprims`) together. The tag tooling refuses a commit
+without the root `go.mod`.
 
 Establish the expected GPG primary key, the exact signing subkey, and the
 minisign public-blob fingerprint through an independently trusted maintainer
@@ -29,9 +28,9 @@ signature is not independent authentication.
 | `config/release/tagger-identity.txt`     | The exact git tagger identity for release tags                                            |
 | `config/release/release-workflow.sha256` | Digests of every reviewed workflow and local action                                       |
 
-No release asset or checksum manifest exists yet, so nothing is signed with
-the minisign key today; its pin and anchor are committed so that the anchors
-are complete before the first release.
+A release publishes no asset or checksum manifest, so nothing is signed with
+the minisign key; its pin and anchor are committed so that the anchors are
+complete if a release ever does.
 
 ## Workflows
 
