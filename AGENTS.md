@@ -51,7 +51,7 @@ tableprims is a leaf: it depends on no other prim. Change the version only
 through `make version-set`, `make version-patch`, `make version-minor` or
 `make version-major`. A change to a workflow or local action updates
 `config/release/release-workflow.sha256` in the same change. Release steps are
-in `RELEASE_CHECKLIST.md`; no release has been made.
+in `RELEASE_CHECKLIST.md`.
 
 Use the public attribution footer on commits and PR bodies:
 

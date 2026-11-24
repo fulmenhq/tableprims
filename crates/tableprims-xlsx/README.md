@@ -14,6 +14,6 @@ rule identifiers of the Tabular Exchange Standard, contract revision
 [fulmenhq/crucible](https://github.com/fulmenhq/crucible); rules of this
 profile, such as `sheet-name-unsupported` and `too-many-rows`, are its own.
 
-The workbook layout is provisional and may change before the first release.
+The workbook layout is provisional and may change in a later release.
 
 See the [repository README](https://github.com/fulmenhq/tableprims) for status.

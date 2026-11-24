@@ -11,7 +11,7 @@ identifiers of a refusal, and how a result is matched to an output and to a
 request. This page describes what `tablebolt` adds: the workbook, the
 `tableprims` extension namespace, its own rule identifiers, its limits and its
 exit codes. The workbook layout and the extension members are provisional and
-may change before the first release.
+may change in a later release.
 
 ```sh
 tablebolt xlsx write --input rows.ndjson --schema schema.json \

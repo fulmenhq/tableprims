@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-24
+
 ### Added
 
 - Cargo workspace with the `tableprims` library crate and the `tableprims-cli`
@@ -60,7 +62,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `version-patch`, `version-minor` and `version-major`.
 - Release tag tooling and its controls: committed public signing pins and
   fingerprint anchors, a pinned tagger identity, signed-tag creation and
-  verification, and a release checklist. No release has been made.
+  verification, and a release checklist.
 - Decision records for the library and language surfaces, the conversion
   result, exact values, the typed table and its documents, expected results,
   record keeping, and untrusted input and dependencies, under
@@ -201,3 +203,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI runs at the minimum supported Rust version on Linux x86_64 and aarch64,
   macOS arm64 and Windows x86_64 and aarch64; `make msrv` is now
   `make msrv-check`.
+
+[Unreleased]: https://github.com/fulmenhq/tableprims/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/fulmenhq/tableprims/releases/tag/v0.1.0

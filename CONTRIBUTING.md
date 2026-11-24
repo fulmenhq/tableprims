@@ -1,6 +1,6 @@
 # Contributing
 
-tableprims is experimental and unreleased; see the [README](README.md) for
+tableprims is experimental; see the [README](README.md) for
 status and [docs/decisions](docs/decisions/README.md) for the decisions that
 bind changes.
 Useful contributions now are concrete conversion examples, questions about the
