@@ -32,6 +32,7 @@ struct Suite {
     capabilities: Vec<String>,
     reports: Vec<(String, Vec<String>)>,
     cases: Vec<Case>,
+    unknown: Vec<String>,
 }
 
 fn member<'a>(object: &'a Json, name: &str) -> &'a Json {
@@ -76,7 +77,14 @@ fn load() -> Suite {
     let names: Vec<&str> = members.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(
         names,
-        ["suite", "description", "capabilities", "surfaces", "cases"]
+        [
+            "suite",
+            "description",
+            "capabilities",
+            "surfaces",
+            "cases",
+            "unknown"
+        ]
     );
     assert_eq!(
         text(member(&document, "suite")),
@@ -96,6 +104,7 @@ fn load() -> Suite {
                 disposition: text(member(c, "disposition")),
             })
             .collect(),
+        unknown: texts(member(&document, "unknown")),
     }
 }
 
@@ -256,6 +265,17 @@ fn evaluate(suite: &Suite) -> Vec<String> {
             (want, got) => out.push(format!("{surface} {id}: want {want}, got {got:?}")),
         }
     }
+    // Identifiers near a known one, and the empty one, are unknown on every
+    // Rust surface.
+    for surface in [CORE, ADAPTER] {
+        for id in &suite.unknown {
+            match require(surface, id) {
+                Err(err) if err.disposition() == Disposition::Unknown && err.capability() == id => {
+                }
+                other => out.push(format!("{surface} {id:?}: got {other:?}, want unknown")),
+            }
+        }
+    }
     out
 }
 
@@ -266,16 +286,17 @@ fn capability_suite() {
         (
             suite.cases.len(),
             suite.reports.len(),
-            suite.capabilities.len()
+            suite.capabilities.len(),
+            suite.unknown.len()
         ),
-        (21, 3, 6)
+        (18, 3, 6, 9)
     );
     let rust = suite
         .cases
         .iter()
         .filter(|c| c.surface.starts_with("rust/"))
         .count();
-    assert_eq!(rust, 14);
+    assert_eq!(rust, 12);
     assert_eq!(
         suite.capabilities,
         capability::KNOWN
@@ -283,22 +304,20 @@ fn capability_suite() {
             .map(|&id| id.to_owned())
             .collect::<Vec<_>>()
     );
-    // Each surface has a case for every capability, in order, and one
-    // unknown control.
+    // Each surface has one case for every capability, in order, and no case
+    // is an unknown control: those are listed once for every surface.
     for (surface, _) in &suite.reports {
         let cases: Vec<_> = suite
             .cases
             .iter()
             .filter(|c| &c.surface == surface)
             .collect();
-        let named: Vec<String> = cases
-            .iter()
-            .filter(|c| c.disposition != "unknown")
-            .map(|c| c.capability.clone())
-            .collect();
-        let unknown = cases.iter().filter(|c| c.disposition == "unknown").count();
+        let named: Vec<String> = cases.iter().map(|c| c.capability.clone()).collect();
         assert_eq!(named, suite.capabilities, "{surface}");
-        assert_eq!(unknown, 1, "{surface}");
+        assert!(
+            cases.iter().all(|c| c.disposition != "unknown"),
+            "{surface}"
+        );
     }
     let disagreements = evaluate(&suite);
     assert!(disagreements.is_empty(), "{disagreements:#?}");
@@ -329,10 +348,14 @@ fn capability_suite_detects_changes() {
             let i = at(ADAPTER, XLSX_WRITE);
             Box::new(move |s| s.cases[i].disposition = "unknown".into())
         }),
-        ("unknown as unsupported", {
-            let i = at(ADAPTER, "no-such-capability");
-            Box::new(move |s| s.cases[i].disposition = "unsupported".into())
-        }),
+        (
+            "known identifier as an unknown control",
+            Box::new(|s| s.unknown.push(QUANTIZE.into())),
+        ),
+        (
+            "unsupported identifier as an unknown control",
+            Box::new(|s| s.unknown.push(XLSX_WRITE.into())),
+        ),
         (
             "report entry on the wrong surface",
             Box::new(|s| {

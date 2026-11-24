@@ -20,10 +20,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   standard. See `docs/capabilities.md`.
 - `conformance/capabilities/v0/capabilities.json`, a suite owned by this
   repository and kept apart from the standard's vectors: the report of each
-  surface and 21 cases. The Go and Rust tests run every case, exercise the
-  operation of each supported capability and require a disagreement when an
-  expectation is altered; the Go test also checks the Rust-only extensions
-  in `.fulmen/repo.yaml` against it.
+  surface, 18 cases and 9 near-miss identifiers that must be unknown. The
+  Go and Rust tests run every case, exercise the operation of each supported
+  capability and require a disagreement when an expectation is altered; the
+  Go test also checks the Rust-only extensions in `.fulmen/repo.yaml`
+  against it.
 
 ## [0.1.0] - 2026-11-24
 

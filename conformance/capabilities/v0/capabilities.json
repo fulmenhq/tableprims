@@ -68,11 +68,6 @@
       "disposition": "unsupported"
     },
     {
-      "surface": "go/table",
-      "capability": "no-such-capability",
-      "disposition": "unknown"
-    },
-    {
       "surface": "rust/tableprims",
       "capability": "read-schema",
       "disposition": "supported"
@@ -103,11 +98,6 @@
       "disposition": "unsupported"
     },
     {
-      "surface": "rust/tableprims",
-      "capability": "no-such-capability",
-      "disposition": "unknown"
-    },
-    {
       "surface": "rust/tableprims-xlsx",
       "capability": "read-schema",
       "disposition": "unsupported"
@@ -136,11 +126,17 @@
       "surface": "rust/tableprims-xlsx",
       "capability": "xlsx-write",
       "disposition": "supported"
-    },
-    {
-      "surface": "rust/tableprims-xlsx",
-      "capability": "no-such-capability",
-      "disposition": "unknown"
     }
+  ],
+  "unknown": [
+    "no-such-capability",
+    "",
+    "READ-SCHEMA",
+    "read-schema ",
+    "read-schema\n",
+    " read-schema",
+    "read-schema-x",
+    "read",
+    "xlsx-write\u0000"
   ]
 }

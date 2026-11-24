@@ -41,8 +41,10 @@ error whose disposition is
 The error is `*table.CapabilityError` in Go and
 `tableprims::CapabilityError` in Rust. Its text is `capability-unsupported`
 or `capability-unknown` and the identifier, quoted by the language's own
-string quoting (`strconv.Quote` in Go, `Debug` in Rust); the two agree for
-printable ASCII. Compare the disposition, not the text.
+string quoting (`strconv.Quote` in Go, `Debug` in Rust). The two agree for
+printable ASCII, quotes and backslashes included, and the tests check one
+such identifier in both; they can differ for control and other non-printing
+characters. Compare the disposition, not the text.
 
 A capability error is not a refusal of the Tabular Exchange Standard. A
 refusal says that a document, a value or a row cannot be converted under a
@@ -55,23 +57,27 @@ an operation.
 `conformance/capabilities/v0/capabilities.json` belongs to this repository.
 It is not part of the standard and is kept apart from the standard's
 vectors under `third_party/`. It names the six capabilities, the report of
-each of the three surfaces, and 21 cases: every capability on every surface,
-and one unknown identifier per surface, each with its expected disposition
-(`supported`, `unsupported` or `unknown`).
+each of the three surfaces, 18 cases (every capability on every surface,
+each `supported` or `unsupported`), and 9 identifiers that must be `unknown`
+on every surface: the empty identifier, and identifiers that differ from a
+known one in letter case, surrounding white space, a suffix, a prefix or a
+NUL character.
 
-- Go (`table/capability_test.go`) runs the 7 cases of the Go package and the
-  Rust tests (`crates/tableprims-xlsx/tests/capabilities.rs`) the 14 of the
-  two Rust surfaces.
+- Go (`table/capability_test.go`) runs the 6 cases of the Go package and the
+  Rust tests (`crates/tableprims-xlsx/tests/capabilities.rs`) the 12 of the
+  two Rust surfaces; each runs the 9 unknown identifiers on its surfaces.
+  The core crate's capabilities are exercised by the adapter crate's tests,
+  because the adapter depends on the core and can call both.
 - Each report must equal the suite's list exactly, in order, with no missing
   or repeated identifier.
 - A `supported` case also runs the operation through the public API and
   checks its result; reporting a capability is not enough.
-- An `unsupported` or `unknown` case calls the surface's `require` and
-  compares the disposition and the identifier. In Go it also checks that the
+- An `unsupported` case, and each unknown identifier, calls the surface's
+  `require` and compares the disposition and the identifier. In Go it also checks that the
   error is not a `*table.Refusal`.
-- Both tests check that every surface has a case for every capability and
-  one unknown control, and that the package's own list of known identifiers
-  equals the suite's.
+- Both tests check that every surface has one case for every capability, in
+  order, and that the package's own list of known identifiers equals the
+  suite's.
 - The Go test checks that the Rust-only and Go-only extensions declared in
   `.fulmen/repo.yaml` are exactly the capabilities the suite gives to one
   language and not the other.

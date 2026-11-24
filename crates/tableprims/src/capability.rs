@@ -183,5 +183,10 @@ mod tests {
             require("no\nsuch").unwrap_err().to_string(),
             r#"capability-unknown: "no\nsuch""#
         );
+        // The same text as the Go package gives.
+        assert_eq!(
+            require(r#"a"b\c'd"#).unwrap_err().to_string(),
+            r#"capability-unknown: "a\"b\\c'd""#
+        );
     }
 }

@@ -34,7 +34,8 @@ type capabilitySuite struct {
 		Surface string   `json:"surface"`
 		Report  []string `json:"report"`
 	} `json:"surfaces"`
-	Cases []capabilityCase `json:"cases"`
+	Cases   []capabilityCase `json:"cases"`
+	Unknown []string         `json:"unknown"`
 }
 
 type capabilityCase struct {
@@ -187,14 +188,22 @@ func evaluateGo(s capabilitySuite) []string {
 			out = append(out, fmt.Sprintf("%s: disposition %q", c.Capability, c.Disposition))
 		}
 	}
+	// Identifiers near a known one, and the empty one, are unknown.
+	for _, id := range s.Unknown {
+		var capErr *table.CapabilityError
+		err := table.Require(id)
+		if !errors.As(err, &capErr) || capErr.Disposition() != table.DispositionUnknown || capErr.Capability() != id {
+			out = append(out, fmt.Sprintf("%q: Require returned %v, want unknown", id, err))
+		}
+	}
 	return out
 }
 
 func TestCapabilitySuite(t *testing.T) {
 	s := loadCapabilitySuite(t)
-	if len(s.Cases) != 21 || len(s.Surfaces) != 3 || len(s.Capabilities) != 6 {
-		t.Fatalf("suite holds %d cases, %d surfaces, %d capabilities; want 21, 3, 6",
-			len(s.Cases), len(s.Surfaces), len(s.Capabilities))
+	if len(s.Cases) != 18 || len(s.Surfaces) != 3 || len(s.Capabilities) != 6 || len(s.Unknown) != 9 {
+		t.Fatalf("suite holds %d cases, %d surfaces, %d capabilities, %d unknown; want 18, 3, 6, 9",
+			len(s.Cases), len(s.Surfaces), len(s.Capabilities), len(s.Unknown))
 	}
 	ran := 0
 	for _, c := range s.Cases {
@@ -202,11 +211,12 @@ func TestCapabilitySuite(t *testing.T) {
 			ran++
 		}
 	}
-	if ran != 7 {
-		t.Fatalf("%d cases for %s, want 7", ran, goSurface)
+	if ran != 6 {
+		t.Fatalf("%d cases for %s, want 6", ran, goSurface)
 	}
-	// Every capability the suite names is known to this package, and each
-	// surface has a case for every capability and one unknown control.
+	// Every capability the suite names is known to this package, each
+	// surface has one case for every capability in order, and no case is an
+	// unknown control: those are listed once for every surface.
 	for _, id := range s.Capabilities {
 		var capErr *table.CapabilityError
 		if err := table.Require(id); errors.As(err, &capErr) && capErr.Disposition() == table.DispositionUnknown {
@@ -215,19 +225,16 @@ func TestCapabilitySuite(t *testing.T) {
 	}
 	for _, surface := range s.Surfaces {
 		var named []string
-		unknown := 0
 		for _, c := range s.Cases {
-			if c.Surface != surface.Surface {
-				continue
+			if c.Surface == surface.Surface {
+				if c.Disposition == table.DispositionUnknown {
+					t.Errorf("%s: case %q is an unknown control", surface.Surface, c.Capability)
+				}
+				named = append(named, c.Capability)
 			}
-			if c.Disposition == table.DispositionUnknown {
-				unknown++
-				continue
-			}
-			named = append(named, c.Capability)
 		}
-		if !reflect.DeepEqual(named, s.Capabilities) || unknown != 1 {
-			t.Errorf("%s: cases %v and %d unknown controls", surface.Surface, named, unknown)
+		if !reflect.DeepEqual(named, s.Capabilities) {
+			t.Errorf("%s: cases %v", surface.Surface, named)
 		}
 	}
 	for _, d := range evaluateGo(s) {
@@ -253,10 +260,11 @@ func TestCapabilitySuiteDetectsChanges(t *testing.T) {
 				return c.Surface == goSurface && c.Capability == table.CapabilityBinary64Decision
 			})].Disposition = table.DispositionUnknown
 		},
-		"unknown as unsupported": func(s *capabilitySuite) {
-			s.Cases[slices.IndexFunc(s.Cases, func(c capabilityCase) bool {
-				return c.Surface == goSurface && c.Disposition == table.DispositionUnknown
-			})].Disposition = table.DispositionUnsupported
+		"known identifier as an unknown control": func(s *capabilitySuite) {
+			s.Unknown = append(s.Unknown, table.CapabilityReadSchema)
+		},
+		"unsupported identifier as an unknown control": func(s *capabilitySuite) {
+			s.Unknown = append(s.Unknown, table.CapabilityXLSXWrite)
 		},
 		"report entry missing": func(s *capabilitySuite) {
 			s.Surfaces[0].Report = s.Surfaces[0].Report[1:]
@@ -285,9 +293,14 @@ func TestCapabilityErrors(t *testing.T) {
 	if err == nil || err.Error() != `capability-unsupported: "xlsx-write"` {
 		t.Errorf("unsupported: %v", err)
 	}
-	err = table.Require("no\nsuch")
-	if err == nil || err.Error() != `capability-unknown: "no\nsuch"` {
-		t.Errorf("unknown: %v", err)
+	// Go and Rust give the same text for these identifiers.
+	for id, want := range map[string]string{
+		"no\nsuch": `capability-unknown: "no\nsuch"`,
+		`a"b\c'd`:  `capability-unknown: "a\"b\\c'd"`,
+	} {
+		if err := table.Require(id); err == nil || err.Error() != want {
+			t.Errorf("unknown %q: %v", id, err)
+		}
 	}
 	// The caller owns the list.
 	list := table.Capabilities()
