@@ -22,7 +22,9 @@ of 3leaps Crucible, telemetry only, when given a runtime directory.
 The library is implemented twice, in Rust and in pure Go. The Go package,
 `github.com/fulmenhq/tableprims/table`, reads the documents, values and rows;
 it does not write workbooks and has no command-line tool. See
-[docs/go.md](docs/go.md).
+[docs/go.md](docs/go.md). Each implementation reports its capabilities and
+answers with an explicit error for one it lacks; see
+[docs/capabilities.md](docs/capabilities.md).
 
 The tests run the standard's value, row and document vectors and its table
 schema and conversion policy fixtures, 477 of the 639 vectors and fixtures in
