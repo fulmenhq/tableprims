@@ -6,8 +6,8 @@ present.
 
 ## Current phase
 
-Pre-release. One conversion is implemented: `tablebolt xlsx write`, described
-in `docs/xlsx-write.md`. Nothing has been released.
+Experimental; v0.1.0 is the first release. One conversion is implemented:
+`tablebolt xlsx write`, described in `docs/xlsx-write.md`.
 
 - Do not add placeholder crates, modules or APIs that imply support which does
   not exist. `conversions()` lists implemented behaviour only.
