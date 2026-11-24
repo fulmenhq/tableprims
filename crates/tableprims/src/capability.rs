@@ -65,23 +65,23 @@ pub fn require(capability: &str) -> Result<(), CapabilityError> {
     answer(HERE, capability)
 }
 
-/// Answers [`require`] for a surface that implements `here`: `Ok` for an
-/// identifier in `here`, otherwise a [`CapabilityError`] that is
-/// [`Disposition::Unsupported`] for a known identifier and
-/// [`Disposition::Unknown`] for any other. Adapter crates use it for their
-/// own `require`.
+/// Answers [`require`] for a surface that implements `here`. Adapter crates
+/// use it for their own `require`.
+///
+/// Only [`KNOWN`] identifiers are capabilities: one that is not in it is
+/// [`Disposition::Unknown`] even when `here` lists it.
 ///
 /// # Errors
 ///
-/// As described above.
+/// [`Disposition::Unknown`] for an identifier not in [`KNOWN`], and
+/// [`Disposition::Unsupported`] for a known identifier not in `here`.
 pub fn answer(here: &[&str], capability: &str) -> Result<(), CapabilityError> {
-    if here.contains(&capability) {
-        return Ok(());
-    }
-    let disposition = if KNOWN.contains(&capability) {
-        Disposition::Unsupported
-    } else {
+    let disposition = if !KNOWN.contains(&capability) {
         Disposition::Unknown
+    } else if here.contains(&capability) {
+        return Ok(());
+    } else {
+        Disposition::Unsupported
     };
     Err(CapabilityError {
         capability: capability.to_owned(),
@@ -154,6 +154,21 @@ mod tests {
         assert!(!capabilities().contains(&XLSX_WRITE));
         assert_eq!(
             require(XLSX_WRITE).unwrap_err().disposition(),
+            Disposition::Unsupported
+        );
+    }
+
+    #[test]
+    fn only_known_identifiers_are_capabilities() {
+        assert_eq!(
+            answer(&["made-up", QUANTIZE], "made-up")
+                .unwrap_err()
+                .disposition(),
+            Disposition::Unknown
+        );
+        assert!(answer(&["made-up", QUANTIZE], QUANTIZE).is_ok());
+        assert_eq!(
+            answer(&[QUANTIZE], READ_ROWS).unwrap_err().disposition(),
             Disposition::Unsupported
         );
     }
