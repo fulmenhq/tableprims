@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-25
+
 ### Added
 
 - Capability boundary on every implementation surface, with the same six
@@ -50,6 +52,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `xlsx-write/r1` verdicts are unchanged.
 - `binary64-decision` is no longer a Rust-only extension in
   `.fulmen/repo.yaml`.
+
+- NOTICE describes `third_party/3leaps-crucible`, the process-run schemas
+  and examples, dedicated to the public domain under CC0 1.0.
+
+### Fixed
+
+- `make version-sync`, the version bump targets and `make version-check`
+  read `Cargo.toml` and `Cargo.lock` as TOML and cover every workspace
+  member; `tableprims-xlsx` was not covered. Each member must inherit the
+  workspace version and depend on another member through `workspace = true`,
+  and each `[workspace.dependencies]` entry for a member must give its path
+  and an exact version. Any other shape is refused; a site the targets
+  cannot edit in place is reported, and nothing is written.
+  `scripts/version-sync.test.sh` holds the controls; `make version-check`
+  runs them.
 
 ## [0.1.0] - 2026-11-24
 
@@ -249,5 +266,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   macOS arm64 and Windows x86_64 and aarch64; `make msrv` is now
   `make msrv-check`.
 
-[Unreleased]: https://github.com/fulmenhq/tableprims/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/fulmenhq/tableprims/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/fulmenhq/tableprims/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/fulmenhq/tableprims/releases/tag/v0.1.0

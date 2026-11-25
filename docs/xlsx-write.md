@@ -220,7 +220,7 @@ fail, and a workbook can be left without a result. Give each run its own names. 
   },
   "extensions": {
     "tableprims": {
-      "tool": {"name": "tablebolt", "version": "0.1.0", "library": "0.1.0"},
+      "tool": {"name": "tablebolt", "version": "0.1.1", "library": "0.1.1"},
       "backend": {"name": "rust_xlsxwriter", "version": "0.102.0"},
       "limits": {"max_rows": 1048575, "max_line_bytes": 1048576, "max_empty_ranges": 65536},
       "policy_digest": "…"

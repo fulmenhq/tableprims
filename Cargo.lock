@@ -968,11 +968,11 @@ dependencies = [
 
 [[package]]
 name = "tableprims"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "tableprims-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "canonprims-core",
  "canonprims-json",
@@ -988,7 +988,7 @@ dependencies = [
 
 [[package]]
 name = "tableprims-xlsx"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "calamine",
  "rust_xlsxwriter",

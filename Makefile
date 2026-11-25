@@ -249,8 +249,9 @@ version: ## Print the version
 
 # VERSION is the single source of truth. Change it only through these targets;
 # they write every version site (Cargo.toml, Cargo.lock) from it.
-version-check: ## Every version site matches VERSION
+version-check: ## Every version site matches VERSION, and the controls of version-sync
 	@$(PYTHON) -I -B scripts/version-sync.py check
+	@PYTHON=$(PYTHON) scripts/version-sync.test.sh
 
 version-sync: ## Write VERSION to every version site
 	@$(PYTHON) -I -B scripts/version-sync.py
