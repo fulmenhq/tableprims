@@ -23,6 +23,3 @@ extensions:
   - id: xlsx-write
     scope: rust-only
     reason: "the XLSX workbook adapter (crates/tableprims-xlsx) has no Go counterpart"
-  - id: binary64-decision
-    scope: rust-only
-    reason: "the binary64 representation decision is in the Rust library only"

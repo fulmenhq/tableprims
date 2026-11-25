@@ -16,9 +16,11 @@ const (
 	CapabilityReadRows = "read-rows"
 	// CapabilityQuantize quantizes a decimal: [Decimal.Quantize].
 	CapabilityQuantize = "quantize"
-	// CapabilityBinary64Decision decides whether an exact number can be
-	// stored as a binary64 number. The Rust library implements it; this
-	// package does not.
+	// CapabilityBinary64Decision exposes the nearest binary64 value of an
+	// exact number, its exactness and its shortest-spelling equality
+	// ([Integer.Binary64], [Decimal.Binary64]), plus eligibility under a
+	// named policy, today xlsx-write/r1 ([XLSXWriteR1Binary64FromInteger],
+	// [XLSXWriteR1Binary64FromDecimal]). It grants no workbook capability.
 	CapabilityBinary64Decision = "binary64-decision"
 	// CapabilityXLSXWrite writes an XLSX workbook. The Rust XLSX adapter
 	// implements it; this package does not.
@@ -44,7 +46,7 @@ var registry = [...]struct {
 	{CapabilityReadPolicy, true},
 	{CapabilityReadRows, true},
 	{CapabilityQuantize, true},
-	{CapabilityBinary64Decision, false},
+	{CapabilityBinary64Decision, true},
 	{CapabilityXLSXWrite, false},
 }
 

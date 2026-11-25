@@ -17,10 +17,13 @@ repository root and is released with the Rust crates under one tag, first
 | Value grammar and row checks      | yes | yes         | yes         |
 | Quantize decimal columns          | yes | yes         | yes         |
 | Read the rows encoding            | yes | yes         | yes         |
-| Decide a binary64 representation  | no  | yes         | yes         |
+| Binary64 facts and the XLSX rule  | yes | yes         | yes         |
 | Write an XLSX workbook            | no  | adapter crate | yes       |
 | Result document, exit codes       | no  | no          | yes         |
 | Process-run telemetry             | no  | no          | yes         |
+
+The binary64 facts and the `xlsx-write/r1` eligibility are on `main` and not
+in v0.1.0; see [binary64.md](binary64.md).
 
 `table.Capabilities` lists the capabilities the package implements, and
 `table.Require` answers for any capability identifier with an explicit
@@ -98,7 +101,8 @@ difference: the Go package accepts them, while `tablebolt` reads them and
 then refuses the run with `sheet-name-missing`, because a workbook needs a
 worksheet name, and completes when `extensions.tableprims.sheet` is added.
 The other differences known outside the vectors are listed below. The 477 say
-nothing about the binary64 decision, the workbook or the rest of the tool.
+nothing about binary64 values, the workbook or the rest of the tool; the
+binary64 facts have their own suite ([binary64.md](binary64.md)).
 
 ## Differences from `tablebolt` outside the vectors
 

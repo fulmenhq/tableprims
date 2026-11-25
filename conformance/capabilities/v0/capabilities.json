@@ -16,7 +16,8 @@
         "read-schema",
         "read-policy",
         "read-rows",
-        "quantize"
+        "quantize",
+        "binary64-decision"
       ]
     },
     {
@@ -60,7 +61,7 @@
     {
       "surface": "go/table",
       "capability": "binary64-decision",
-      "disposition": "unsupported"
+      "disposition": "supported"
     },
     {
       "surface": "go/table",

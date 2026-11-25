@@ -22,8 +22,10 @@ pub const READ_POLICY: &str = "read-policy";
 pub const READ_ROWS: &str = "read-rows";
 /// Quantizes a decimal: [`crate::exact::Decimal::quantize`].
 pub const QUANTIZE: &str = "quantize";
-/// Decides whether an exact number can be stored as a binary64 number:
-/// [`crate::binary64`].
+/// Exposes the nearest binary64 value of an exact number, its exactness and
+/// its shortest-spelling equality, plus eligibility under a named policy,
+/// today `xlsx-write/r1`: [`crate::binary64`]. It grants no workbook
+/// capability.
 pub const BINARY64_DECISION: &str = "binary64-decision";
 /// Writes an XLSX workbook. The XLSX adapter crate implements it; this crate
 /// does not.

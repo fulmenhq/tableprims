@@ -1,27 +1,40 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Eligibility of exact numbers for storage as IEEE 754 binary64.
+//! Exact numbers as IEEE 754 binary64 values.
 //!
-//! Some destinations can hold a number only as a binary64 value. An exact
-//! number is eligible for such a cell when a reader can recover the declared
-//! value from it:
+//! [`integer_facts`] and [`decimal_facts`] give the nearest binary64 value of
+//! an exact number, ties to even, and two facts about it that are
+//! independent of each other:
+//!
+//! - [`Facts::is_exact`]: the binary64 value is the number itself;
+//! - [`Facts::round_trips`]: the shortest decimal spelling of the binary64
+//!   value denotes the number.
+//!
+//! The integer 2^60 is exact but does not round-trip; the decimal 0.1 round
+//! trips but is not exact. Which facts a destination requires, and any limit
+//! on digits, is the destination's rule.
+//!
+//! [`from_integer`] and [`from_decimal`] apply one such rule, the one of the
+//! XLSX write profile `xlsx-write/r1`. An exact number is eligible for a
+//! numeric cell when a reader can recover the declared value from it:
 //!
 //! 1. it has at most [`MAX_SIGNIFICANT_DIGITS`] significant digits, not
 //!    counting leading or trailing zeros;
-//! 2. the shortest decimal spelling of the nearest binary64 value equals it
-//!    mathematically;
-//! 3. for an integer, the nearest binary64 value is the integer itself.
+//! 2. it round-trips;
+//! 3. for an integer, it is exact.
 //!
 //! The source value stays the authority: these functions return the
-//! binary64 value to store and never a value read back from it. Decimal
-//! comparison is done on digit strings, not through floating point. The
-//! rules are provisional and may change in a later release.
+//! binary64 value to store and never a value read back from it. Exactness is
+//! decided in integer arithmetic and decimal comparison on digit strings,
+//! not through floating point. The rules are provisional and may change in a
+//! later release.
 
 use core::fmt;
 
 use crate::exact::{Decimal, Integer};
 
-/// Largest number of significant digits an eligible value may have.
+/// Largest number of significant digits a value eligible under the
+/// `xlsx-write/r1` rule may have.
 pub const MAX_SIGNIFICANT_DIGITS: u8 = 15;
 
 /// Why an exact number is not eligible for binary64 storage.
@@ -35,6 +48,19 @@ pub enum Binary64Error {
     NotRoundTrip,
     /// The nearest binary64 value is not the integer itself.
     NotExactInteger,
+}
+
+impl Binary64Error {
+    /// A stable identifier of the reason: `too-many-digits`,
+    /// `not-round-trip` or `not-exact-integer`.
+    #[must_use]
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::TooManyDigits => "too-many-digits",
+            Self::NotRoundTrip => "not-round-trip",
+            Self::NotExactInteger => "not-exact-integer",
+        }
+    }
 }
 
 impl fmt::Display for Binary64Error {
@@ -109,20 +135,165 @@ pub fn same_decimal_value(left: &str, right: &str) -> bool {
     }
 }
 
-/// Converts canonical exact-number text to the nearest binary64 value and
-/// checks that its shortest spelling denotes the same number.
-fn nearest_round_trip(canonical: &str) -> Result<f64, Binary64Error> {
-    // The standard library parses decimal text to the nearest binary64
-    // value, ties to even, and prints the shortest digits that parse back to
-    // the same value, without an exponent.
-    let value: f64 = canonical.parse().map_err(|_| Binary64Error::NotRoundTrip)?;
-    if !value.is_finite() || !same_decimal_value(&value.to_string(), canonical) {
-        return Err(Binary64Error::NotRoundTrip);
-    }
-    Ok(value)
+/// The nearest binary64 value of an exact number and two facts about it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Facts {
+    value: f64,
+    exact: bool,
+    round_trips: bool,
 }
 
-/// Returns the binary64 value to store for a decimal, if it is eligible.
+impl Facts {
+    /// The nearest binary64 value, ties to even. It is finite, and zero is
+    /// positive.
+    #[must_use]
+    pub fn value(self) -> f64 {
+        self.value
+    }
+
+    /// Whether the binary64 value is the number itself.
+    #[must_use]
+    pub fn is_exact(self) -> bool {
+        self.exact
+    }
+
+    /// Whether the shortest decimal spelling of the binary64 value denotes
+    /// the number. The shortest spelling has the fewest significant digits
+    /// that parse back to the value and, among those, is the closest to it,
+    /// ties to an even last digit.
+    #[must_use]
+    pub fn round_trips(self) -> bool {
+        self.round_trips
+    }
+}
+
+/// Whether `coefficient / 10^scale` is a binary64 value. It is when it is a
+/// binary fraction, that is when 5^scale divides the coefficient, whose odd
+/// part then fits in 53 bits. Every number of the exact domain is far inside
+/// the binary64 exponent range, so no other condition applies.
+fn exact_in_binary64(coefficient: i128, scale: u8) -> bool {
+    let mut rest = coefficient.unsigned_abs();
+    if rest == 0 {
+        return true;
+    }
+    for _ in 0..scale {
+        if rest % 5 != 0 {
+            return false;
+        }
+        rest /= 5;
+    }
+    rest >>= rest.trailing_zeros();
+    rest < 1 << 53
+}
+
+/// Plain decimal text of `digits * 10^exponent`, without an exponent.
+fn plain(digits: u128, exponent: i32) -> String {
+    let text = digits.to_string();
+    if exponent >= 0 {
+        return text + &"0".repeat(exponent.unsigned_abs() as usize);
+    }
+    let point = exponent.unsigned_abs() as usize;
+    let text = format!("{text:0>width$}", width = point + 1);
+    let (whole, fraction) = text.split_at(text.len() - point);
+    format!("{whole}.{fraction}")
+}
+
+/// Whether `digits * 10^exponent` is exactly the binary64 value `target`.
+fn is_exactly(digits: u128, exponent: i32, target: f64) -> bool {
+    let Ok(scale) = u8::try_from((-exponent).max(0)) else {
+        return false;
+    };
+    let coefficient = if exponent >= 0 {
+        let Some(c) = 10u128
+            .checked_pow(exponent.unsigned_abs())
+            .and_then(|p| digits.checked_mul(p))
+        else {
+            return false;
+        };
+        c
+    } else {
+        digits
+    };
+    let Ok(coefficient) = i128::try_from(coefficient) else {
+        return false;
+    };
+    exact_in_binary64(coefficient, if exponent >= 0 { 0 } else { scale })
+        && plain(digits, exponent).parse::<f64>() == Ok(target)
+}
+
+/// The shortest decimal spelling of a finite binary64 value: the fewest
+/// significant digits that parse back to the value and, among those, the
+/// spelling closest to it, ties to an even last digit. This is what Go's
+/// `strconv` and Python's `repr` print. The standard library's `Display`
+/// prints a shortest closest spelling but breaks an exact tie away from
+/// zero, so a tie is detected here, in exact arithmetic, and resolved.
+fn shortest_spelling(value: f64) -> String {
+    let magnitude = value.abs();
+    let text = magnitude.to_string();
+    let (whole, fraction) = text.split_once('.').unwrap_or((&text, ""));
+    let all = format!("{whole}{fraction}");
+    let significant = all.trim_start_matches('0');
+    let trimmed = significant.trim_end_matches('0');
+    let sign = if value.is_sign_negative() && magnitude != 0.0 {
+        "-"
+    } else {
+        ""
+    };
+    let Ok(digits) = trimmed.parse::<u128>() else {
+        return text; // zero
+    };
+    if digits % 2 == 0 {
+        return format!("{sign}{text}");
+    }
+    // magnitude is about digits * 10^exponent; a neighbour one unit in the
+    // last place away is as close when the value is exactly their midpoint.
+    let exponent = (significant.len() - trimmed.len()) as i32 - fraction.len() as i32;
+    for neighbour in [digits - 1, digits + 1] {
+        let midpoint = digits + neighbour; // twice the midpoint, in units
+        if is_exactly(midpoint * 5, exponent - 1, magnitude)
+            && plain(neighbour, exponent).parse::<f64>() == Ok(magnitude)
+        {
+            return format!("{sign}{}", plain(neighbour, exponent));
+        }
+    }
+    format!("{sign}{text}")
+}
+
+/// The facts of an exact number, from its canonical text, coefficient and
+/// scale.
+fn facts(canonical: &str, coefficient: i128, scale: u8) -> Facts {
+    // The standard library parses decimal text to the nearest binary64
+    // value, ties to even, and prints the shortest digits that parse back to
+    // the same value, without an exponent. Every exact number parses to a
+    // finite value.
+    let mut value: f64 = canonical
+        .parse()
+        .expect("canonical exact-number text parses as a binary64 value");
+    if value == 0.0 {
+        value = 0.0;
+    }
+    Facts {
+        value,
+        exact: exact_in_binary64(coefficient, scale),
+        round_trips: same_decimal_value(&shortest_spelling(value), canonical),
+    }
+}
+
+/// The nearest binary64 value of an integer and its facts.
+#[must_use]
+pub fn integer_facts(value: Integer) -> Facts {
+    facts(&value.to_string(), value.value(), 0)
+}
+
+/// The nearest binary64 value of a decimal and its facts. The declared
+/// scale is not carried by the value.
+#[must_use]
+pub fn decimal_facts(value: Decimal) -> Facts {
+    facts(&value.to_string(), value.coefficient(), value.scale())
+}
+
+/// Returns the binary64 value to store for a decimal, if it is eligible
+/// under the rule of the XLSX write profile `xlsx-write/r1`.
 ///
 /// The declared scale is not carried by the result and must travel
 /// separately.
@@ -135,10 +306,15 @@ pub fn from_decimal(value: Decimal) -> Result<f64, Binary64Error> {
     if significant_digits(value.coefficient()) > MAX_SIGNIFICANT_DIGITS {
         return Err(Binary64Error::TooManyDigits);
     }
-    nearest_round_trip(&value.to_string())
+    let facts = decimal_facts(value);
+    if !facts.round_trips {
+        return Err(Binary64Error::NotRoundTrip);
+    }
+    Ok(facts.value)
 }
 
-/// Returns the binary64 value to store for an integer, if it is eligible.
+/// Returns the binary64 value to store for an integer, if it is eligible
+/// under the rule of the XLSX write profile `xlsx-write/r1`.
 ///
 /// # Errors
 ///
@@ -148,14 +324,14 @@ pub fn from_integer(value: Integer) -> Result<f64, Binary64Error> {
     if significant_digits(value.value()) > MAX_SIGNIFICANT_DIGITS {
         return Err(Binary64Error::TooManyDigits);
     }
-    let stored = nearest_round_trip(&value.to_string())?;
-    // An exact integer has at most 38 digits, so the stored value is below
-    // 2^127 in magnitude and converts without saturating. A binary64 value
-    // of that size with a fractional part cannot be nearest to an integer.
-    if stored.fract() != 0.0 || stored as i128 != value.value() {
+    let facts = integer_facts(value);
+    if !facts.round_trips {
+        return Err(Binary64Error::NotRoundTrip);
+    }
+    if !facts.exact {
         return Err(Binary64Error::NotExactInteger);
     }
-    Ok(stored)
+    Ok(facts.value)
 }
 
 #[cfg(test)]

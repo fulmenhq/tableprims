@@ -2,7 +2,8 @@
 
 tableprims is implemented twice: a Rust library with an XLSX adapter crate,
 and a pure-Go package. The two share the reading of documents, values and
-rows; two capabilities are Rust only. Each implementation surface reports
+rows and the binary64 facts of exact numbers; writing a workbook is Rust
+only. Each implementation surface reports
 what it implements and answers, through its public API, for what it does
 not. A repository suite checks those answers.
 
@@ -17,11 +18,15 @@ under Unreleased in the [CHANGELOG](../CHANGELOG.md).
 | `read-policy`       | Read a policy document                           | yes                | yes               | no                     |
 | `read-rows`         | Read and check rows under a schema               | yes                | yes               | no                     |
 | `quantize`          | Quantize a decimal                               | yes                | yes               | no                     |
-| `binary64-decision` | Decide whether an exact number can be a binary64 | no                 | yes               | no                     |
+| `binary64-decision` | Binary64 facts; eligibility under a named policy | yes                | yes               | no                     |
 | `xlsx-write`        | Write an XLSX workbook                           | no                 | no                | yes                    |
 
-`binary64-decision` and `xlsx-write` are declared Rust-only in
-`.fulmen/repo.yaml`. The core Rust crate never reports `xlsx-write`; an
+`xlsx-write` is declared Rust-only in `.fulmen/repo.yaml`.
+`binary64-decision` exposes the nearest binary64 value, its exactness and
+its shortest-spelling equality, plus explicit eligibility under a named
+policy; the policy available today is `xlsx-write/r1`. It grants no workbook
+capability, and other destinations may use the facts on their own. The
+results are the same on both implementations ([binary64.md](binary64.md)). The core Rust crate never reports `xlsx-write`; an
 application that uses both Rust crates composes their two lists.
 
 ## API
