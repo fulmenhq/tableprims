@@ -25,6 +25,7 @@ repository root and is released with the Rust crates under one tag, first
 `table.Capabilities` lists the capabilities the package implements, and
 `table.Require` answers for any capability identifier with an explicit
 `unsupported` or `unknown` error; see [capabilities.md](capabilities.md).
+Both are on `main` and not in v0.1.0.
 
 There is no Go command-line tool. The Go package applies none of the rules
 of a destination: the worksheet name, the row and empty-range ceilings of

@@ -6,6 +6,9 @@ rows; two capabilities are Rust only. Each implementation surface reports
 what it implements and answers, through its public API, for what it does
 not. A repository suite checks those answers.
 
+The interface described here is on `main` and not in v0.1.0; it is listed
+under Unreleased in the [CHANGELOG](../CHANGELOG.md).
+
 ## Identifiers
 
 | Capability          | Operation                                        | Go package `table` | Rust `tableprims` | Rust `tableprims-xlsx` |
