@@ -164,7 +164,8 @@ happens otherwise, and it applies to a whole column:
 | `text-always`    | every integer and decimal column is written as text            |
 
 A numeric cell takes part in spreadsheet arithmetic as a binary floating
-point number. Dates and timestamps are written as text.
+point number. Dates and timestamps are written as text. The rule and its
+shared vectors are described in [binary64.md](binary64.md).
 
 ## The workbook
 

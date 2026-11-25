@@ -22,7 +22,7 @@ TABLEBOLT := target/debug/tablebolt
 .DEFAULT_GOAL := help
 .PHONY: all help check check-platform precommit prepush pr-final fmt fmt-check lint lint-yaml lint-workflows \
         test smoke check-go test-go test-go-race msrv-check deps-check deps-check-test deny surface-scan content-check licenses-check surface-tests \
-        workflow-pin release-tooling-test checklist-targets doctor doctor-test release-ceremony-test \
+        workflow-pin release-tooling-test checklist-targets binary64-vectors-check doctor doctor-test release-ceremony-test \
         release-export-pin release-validate-pin release-insert-anchors release-github-preflight \
         release-preflight release-prepare-tag-message release-tag release-push-tag release-verify-tag \
         release-verify-remote-tag release-record-anchor version version-check version-sync version-set \
@@ -33,7 +33,7 @@ all: check
 help: ## Show available targets
 	@awk 'BEGIN{FS=":.*## "} /^[a-z][a-z0-9-]*:.*## /{printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-check-platform: fmt-check lint test check-go test-go smoke deps-check content-check licenses-check surface-tests checklist-targets version-check ## Platform-native subset of check (no cargo-deny or PyYAML required)
+check-platform: fmt-check lint test check-go test-go smoke deps-check content-check licenses-check surface-tests checklist-targets version-check binary64-vectors-check ## Platform-native subset of check (no cargo-deny or PyYAML required)
 
 check: check-platform test-go-race workflow-pin release-tooling-test deny ## Everything CI runs on one host
 	@echo "[ok] check"
@@ -72,6 +72,9 @@ surface-tests: ## Controls for content-check and the surface scan (the scan suit
 
 workflow-pin: ## Every workflow and local action matches its reviewed digest and is read-only
 	@$(PYTHON) -P -B -E scripts/release-workflow-pin.py check
+
+binary64-vectors-check: ## conformance/binary64 matches what scripts/binary64-vectors.py derives
+	@$(PYTHON) -I -B scripts/binary64-vectors.py --check
 
 checklist-targets: ## Every make target named in RELEASE_CHECKLIST.md exists
 	@scripts/checklist-targets.sh

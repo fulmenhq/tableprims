@@ -134,6 +134,35 @@ func exercise(capability string) error {
 			return fmt.Errorf("quantized %v", q)
 		}
 		return nil
+	case table.CapabilityBinary64Decision:
+		ty, err := table.NewDecimalType(3, 2)
+		if err != nil {
+			return err
+		}
+		d, err := table.ParseDecimal("0.50", ty)
+		if err != nil {
+			return err
+		}
+		if stored, err := table.XLSXWriteR1Binary64FromDecimal(d); err != nil || stored != 0.5 {
+			return fmt.Errorf("stored %v %v", stored, err)
+		}
+		// Sixteen significant digits are refused by the rule; the facts remain.
+		wide, err := table.NewDecimalType(17, 16)
+		if err != nil {
+			return err
+		}
+		d, err = table.ParseDecimal("0.1234567890123456", wide)
+		if err != nil {
+			return err
+		}
+		var b64 *table.Binary64Error
+		if _, err := table.XLSXWriteR1Binary64FromDecimal(d); !errors.As(err, &b64) || b64.Reason() != table.Binary64TooManyDigits {
+			return fmt.Errorf("16 digits: %v", err)
+		}
+		if facts := d.Binary64(); facts.Exact() || !facts.RoundTrips() {
+			return fmt.Errorf("16 digits: facts %+v", facts)
+		}
+		return nil
 	}
 	return fmt.Errorf("no operation exercises %q", capability)
 }
@@ -257,7 +286,7 @@ func TestCapabilitySuiteDetectsChanges(t *testing.T) {
 		},
 		"unsupported as unknown": func(s *capabilitySuite) {
 			s.Cases[slices.IndexFunc(s.Cases, func(c capabilityCase) bool {
-				return c.Surface == goSurface && c.Capability == table.CapabilityBinary64Decision
+				return c.Surface == goSurface && c.Capability == table.CapabilityXLSXWrite
 			})].Disposition = table.DispositionUnknown
 		},
 		"known identifier as an unknown control": func(s *capabilitySuite) {
@@ -273,7 +302,7 @@ func TestCapabilitySuiteDetectsChanges(t *testing.T) {
 			s.Surfaces[0].Report = append(s.Surfaces[0].Report, s.Surfaces[0].Report[0])
 		},
 		"report entry from another surface": func(s *capabilitySuite) {
-			s.Surfaces[0].Report = append(s.Surfaces[0].Report, table.CapabilityBinary64Decision)
+			s.Surfaces[0].Report = append(s.Surfaces[0].Report, table.CapabilityXLSXWrite)
 		},
 	}
 	for name, mutate := range mutations {
@@ -440,7 +469,7 @@ func TestCapabilitySuiteMatchesRepoDeclaration(t *testing.T) {
 			t.Errorf("%s: declared %v, suite %v", scope, declared[scope], derived[scope])
 		}
 	}
-	if len(declared["rust-only"]) != 2 || len(declared["cli"]) != 1 {
+	if len(declared["rust-only"]) != 1 || len(declared["cli"]) != 1 {
 		t.Errorf("extensions %v", declared)
 	}
 }

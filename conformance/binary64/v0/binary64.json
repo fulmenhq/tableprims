@@ -1,0 +1,644 @@
+{
+  "suite": "tableprims-binary64/0",
+  "description": "Binary64 facts of exact numbers. bits is the nearest binary64 value, ties to even; exact says it equals the number; round_trips says its shortest decimal spelling denotes the number; xlsx_write_r1 is the verdict of the xlsx-write/r1 rule. Derived with CPython by scripts/binary64-vectors.py.",
+  "reasons": [
+    {
+      "code": "too-many-digits",
+      "message": "value has too many significant digits for a numeric cell"
+    },
+    {
+      "code": "not-round-trip",
+      "message": "value does not survive storage as a binary number"
+    },
+    {
+      "code": "not-exact-integer",
+      "message": "integer is not exactly representable as a binary number"
+    }
+  ],
+  "cases": [
+    {
+      "kind": "integer",
+      "text": "0",
+      "bits": "0x0000000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "integer",
+      "text": "1",
+      "bits": "0x3ff0000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "integer",
+      "text": "-1",
+      "bits": "0xbff0000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "integer",
+      "text": "42",
+      "bits": "0x4045000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "integer",
+      "text": "999999999999999",
+      "bits": "0x430c6bf52633fff8",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "integer",
+      "text": "9999999999999999",
+      "bits": "0x4341c37937e08000",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "12345678901234567",
+      "bits": "0x4345ee2a2eb5a5c4",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "123456789012344000",
+      "bits": "0x437b69b4ba630ecc",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "integer",
+      "text": "1234567890123456000",
+      "bits": "0x43b12210f47de97e",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "9007199254740991",
+      "bits": "0x433fffffffffffff",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "9007199254740992",
+      "bits": "0x4340000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "9007199254740993",
+      "bits": "0x4340000000000000",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "-9007199254740993",
+      "bits": "0xc340000000000000",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "18014398509481986",
+      "bits": "0x4350000000000000",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "18014398509481990",
+      "bits": "0x4350000000000002",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "1152921504606846976",
+      "bits": "0x43b0000000000000",
+      "exact": true,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "18446744073709551616",
+      "bits": "0x43f0000000000000",
+      "exact": true,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "10000000000000000000000",
+      "bits": "0x4480f0cf064dd592",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "integer",
+      "text": "100000000000000000000000",
+      "bits": "0x44b52d02c7e14af6",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "not-exact-integer"
+    },
+    {
+      "kind": "integer",
+      "text": "-100000000000000000000000",
+      "bits": "0xc4b52d02c7e14af6",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "not-exact-integer"
+    },
+    {
+      "kind": "integer",
+      "text": "10000000000000000000000000000000000000",
+      "bits": "0x479e17b84357691b",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "not-exact-integer"
+    },
+    {
+      "kind": "integer",
+      "text": "99999999999999999999999999999999999999",
+      "bits": "0x47d2ced32a16a1b1",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "integer",
+      "text": "-99999999999999999999999999999999999999",
+      "bits": "0xc7d2ced32a16a1b1",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.00",
+      "precision": 2,
+      "scale": 2,
+      "coefficient_digits": 1,
+      "bits": "0x0000000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.00000000000000000000000000000000000000",
+      "precision": 38,
+      "scale": 38,
+      "coefficient_digits": 1,
+      "bits": "0x0000000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0",
+      "precision": 1,
+      "scale": 0,
+      "coefficient_digits": 1,
+      "bits": "0x0000000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.1",
+      "precision": 1,
+      "scale": 1,
+      "coefficient_digits": 1,
+      "bits": "0x3fb999999999999a",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.3",
+      "precision": 1,
+      "scale": 1,
+      "coefficient_digits": 1,
+      "bits": "0x3fd3333333333333",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.50",
+      "precision": 2,
+      "scale": 2,
+      "coefficient_digits": 2,
+      "bits": "0x3fe0000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "-12.50",
+      "precision": 4,
+      "scale": 2,
+      "coefficient_digits": 4,
+      "bits": "0xc029000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "123.45",
+      "precision": 5,
+      "scale": 2,
+      "coefficient_digits": 5,
+      "bits": "0x405edccccccccccd",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "2.5",
+      "precision": 2,
+      "scale": 1,
+      "coefficient_digits": 2,
+      "bits": "0x4004000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.125",
+      "precision": 3,
+      "scale": 3,
+      "coefficient_digits": 3,
+      "bits": "0x3fc0000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.0001220703125",
+      "precision": 13,
+      "scale": 13,
+      "coefficient_digits": 10,
+      "bits": "0x3f20000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "-0.0001220703125",
+      "precision": 13,
+      "scale": 13,
+      "coefficient_digits": 10,
+      "bits": "0xbf20000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.999999999999999",
+      "precision": 15,
+      "scale": 15,
+      "coefficient_digits": 15,
+      "bits": "0x3feffffffffffff7",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "9.99999999999999",
+      "precision": 15,
+      "scale": 14,
+      "coefficient_digits": 15,
+      "bits": "0x4023fffffffffffa",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.1234567890123456",
+      "precision": 16,
+      "scale": 16,
+      "coefficient_digits": 16,
+      "bits": "0x3fbf9add3746f659",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "1.2345678901234567",
+      "precision": 17,
+      "scale": 16,
+      "coefficient_digits": 17,
+      "bits": "0x3ff3c0ca428c59fb",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "1.23456789012345000000",
+      "precision": 21,
+      "scale": 20,
+      "coefficient_digits": 21,
+      "bits": "0x3ff3c0ca428c59dd",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "1.50000000000000000000",
+      "precision": 21,
+      "scale": 20,
+      "coefficient_digits": 21,
+      "bits": "0x3ff8000000000000",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "1.234567890123456000",
+      "precision": 19,
+      "scale": 18,
+      "coefficient_digits": 19,
+      "bits": "0x3ff3c0ca428c59f8",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "100000000000000000000000.0",
+      "precision": 25,
+      "scale": 1,
+      "coefficient_digits": 25,
+      "bits": "0x44b52d02c7e14af6",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "9007199254740993.0",
+      "precision": 17,
+      "scale": 1,
+      "coefficient_digits": 17,
+      "bits": "0x4340000000000000",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "18014398509481986.0",
+      "precision": 18,
+      "scale": 1,
+      "coefficient_digits": 18,
+      "bits": "0x4350000000000000",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "1152921504606846976.0",
+      "precision": 20,
+      "scale": 1,
+      "coefficient_digits": 20,
+      "bits": "0x43b0000000000000",
+      "exact": true,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "1657035451829198.2",
+      "precision": 17,
+      "scale": 1,
+      "coefficient_digits": 17,
+      "bits": "0x43178c4285f22f39",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "1657035451829198.3",
+      "precision": 17,
+      "scale": 1,
+      "coefficient_digits": 17,
+      "bits": "0x43178c4285f22f39",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "766111447580660.2",
+      "precision": 16,
+      "scale": 1,
+      "coefficient_digits": 16,
+      "bits": "0x4305c631c587ffa2",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "766111447580660.3",
+      "precision": 16,
+      "scale": 1,
+      "coefficient_digits": 16,
+      "bits": "0x4305c631c587ffa2",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "115441097943.48438",
+      "precision": 17,
+      "scale": 5,
+      "coefficient_digits": 17,
+      "bits": "0x423ae0d35cd77c00",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "115441097943.48437",
+      "precision": 17,
+      "scale": 5,
+      "coefficient_digits": 17,
+      "bits": "0x423ae0d35cd77c00",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "851197258272.2188",
+      "precision": 16,
+      "scale": 4,
+      "coefficient_digits": 16,
+      "bits": "0x4268c5e9ed440700",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "851197258272.2187",
+      "precision": 16,
+      "scale": 4,
+      "coefficient_digits": 16,
+      "bits": "0x4268c5e9ed440700",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.00000005960464477539063",
+      "precision": 23,
+      "scale": 23,
+      "coefficient_digits": 16,
+      "bits": "0x3e70000000000000",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "-0.00000005960464477539063",
+      "precision": 23,
+      "scale": 23,
+      "coefficient_digits": 16,
+      "bits": "0xbe70000000000000",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "4503599627370495.5",
+      "precision": 17,
+      "scale": 1,
+      "coefficient_digits": 17,
+      "bits": "0x432fffffffffffff",
+      "exact": true,
+      "round_trips": true,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "4503599627370496.5",
+      "precision": 17,
+      "scale": 1,
+      "coefficient_digits": 17,
+      "bits": "0x4330000000000000",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.00000000000000000000000000000000000001",
+      "precision": 38,
+      "scale": 38,
+      "coefficient_digits": 1,
+      "bits": "0x380b38fb9daa78e4",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "-0.00000000000000000000000000000000000001",
+      "precision": 38,
+      "scale": 38,
+      "coefficient_digits": 1,
+      "bits": "0xb80b38fb9daa78e4",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.00000000000000000000000000000000000003",
+      "precision": 38,
+      "scale": 38,
+      "coefficient_digits": 1,
+      "bits": "0x38246abcb63fdaab",
+      "exact": false,
+      "round_trips": true,
+      "xlsx_write_r1": "ok"
+    },
+    {
+      "kind": "decimal",
+      "text": "9999999999999999999999999999999999999.9",
+      "precision": 38,
+      "scale": 1,
+      "coefficient_digits": 38,
+      "bits": "0x479e17b84357691b",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    },
+    {
+      "kind": "decimal",
+      "text": "0.99999999999999999999999999999999999999",
+      "precision": 38,
+      "scale": 38,
+      "coefficient_digits": 38,
+      "bits": "0x3ff0000000000000",
+      "exact": false,
+      "round_trips": false,
+      "xlsx_write_r1": "too-many-digits"
+    }
+  ]
+}

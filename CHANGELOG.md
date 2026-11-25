@@ -25,6 +25,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   capability and require a disagreement when an expectation is altered; the
   Go test also checks the Rust-only extensions in `.fulmen/repo.yaml`
   against it.
+- Binary64 facts of exact numbers in both implementations: the nearest
+  binary64 value, ties to even, and whether it is exact and whether its
+  shortest spelling round-trips, two independent facts. The shortest
+  spelling is the closest of the fewest digits, ties to an even last digit,
+  in both implementations. Go:
+  `Integer.Binary64`, `Decimal.Binary64`, the `Binary64` type,
+  `table.XLSXWriteR1Binary64FromInteger`,
+  `table.XLSXWriteR1Binary64FromDecimal` (eligibility under `xlsx-write/r1`)
+  and `*table.Binary64Error`; the Go
+  package now reports `binary64-decision`. Rust: `binary64::integer_facts`,
+  `binary64::decimal_facts`, `binary64::Facts` and `Binary64Error::code`.
+  See `docs/binary64.md`.
+- `conformance/binary64/v0/binary64.json`, 63 cases whose expectations are
+  derived with CPython by `scripts/binary64-vectors.py` (the `xlsx-write/r1`
+  verdict is the field `xlsx_write_r1`), run by both
+  implementations; `make binary64-vectors-check` keeps the file and the
+  script in step.
+
+### Changed
+
+- `binary64::from_integer` and `binary64::from_decimal` are built on the
+  facts. Their signatures, reasons, the order in which reasons apply and the
+  `xlsx-write/r1` verdicts are unchanged.
+- `binary64-decision` is no longer a Rust-only extension in
+  `.fulmen/repo.yaml`.
 
 ## [0.1.0] - 2026-11-24
 
