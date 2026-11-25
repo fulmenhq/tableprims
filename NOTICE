@@ -17,6 +17,13 @@ CC0 1.0 Universal. Their origin, revision and digests are in
 third_party/crucible/PROVENANCE.md, and the dedication is beside
 them.
 
+The directory third_party/3leaps-crucible holds the JSON Schemas and examples
+of the process-run contract from 3leaps Crucible
+(https://github.com/3leaps/crucible), dedicated to the public domain under
+CC0 1.0 Universal. Their origin, revision and digests are in
+third_party/3leaps-crucible/PROVENANCE.md, and the dedication is beside
+them.
+
 ## Project Name Notice
 
 "tableprims" and "tablebolt" are project names of 3 Leaps, LLC, used to
