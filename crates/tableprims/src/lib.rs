@@ -11,12 +11,15 @@
 //! `tabular-exchange/0.1.0`, published in fulmenhq/crucible.
 
 pub mod binary64;
+pub mod capability;
 pub mod documents;
 pub mod exact;
 pub mod json;
 pub mod ndjson;
 pub mod table;
 pub mod temporal;
+
+pub use capability::{capabilities, require, CapabilityError};
 
 /// Version of this library.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

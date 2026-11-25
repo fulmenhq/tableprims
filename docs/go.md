@@ -22,6 +22,10 @@ repository root and is released with the Rust crates under one tag, first
 | Result document, exit codes       | no  | no          | yes         |
 | Process-run telemetry             | no  | no          | yes         |
 
+`table.Capabilities` lists the capabilities the package implements, and
+`table.Require` answers for any capability identifier with an explicit
+`unsupported` or `unknown` error; see [capabilities.md](capabilities.md).
+
 There is no Go command-line tool. The Go package applies none of the rules
 of a destination: the worksheet name, the row and empty-range ceilings of
 the workbook and the cell length are checked by the XLSX adapter. A policy's

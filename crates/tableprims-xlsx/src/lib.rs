@@ -52,6 +52,27 @@ mod write;
 pub use error::{Category, ErrorKind, WriteError};
 pub use plan::{ColumnOutcome, Outcome, Plan, Representation, ResolvedLimits, Scan};
 
+/// The capabilities this adapter implements: [`CAPABILITY`] only. The core
+/// crate reports its own, and an application that uses both can compose
+/// the two lists.
+#[must_use]
+pub fn capabilities() -> &'static [&'static str] {
+    &[CAPABILITY]
+}
+
+/// Returns `Ok` for [`CAPABILITY`].
+///
+/// # Errors
+///
+/// Any other identifier is a [`tableprims::CapabilityError`]: unsupported
+/// when it names a capability of the core crate, unknown otherwise.
+pub fn require(capability: &str) -> Result<(), tableprims::CapabilityError> {
+    tableprims::capability::answer(capabilities(), capability)
+}
+
+/// The capability this adapter implements: writing an XLSX workbook.
+pub const CAPABILITY: &str = tableprims::capability::XLSX_WRITE;
+
 /// Identifier of the write profile this adapter implements.
 pub const PROFILE_ID: &str = "xlsx-write/r1";
 /// Name of the workbook writer.

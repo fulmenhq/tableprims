@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Capability boundary on every implementation surface, with the same six
+  identifiers: `read-schema`, `read-policy`, `read-rows`, `quantize`,
+  `binary64-decision` and `xlsx-write`. Go: `table.Capabilities`,
+  `table.Require` and `*table.CapabilityError`. Rust:
+  `tableprims::capabilities`, `tableprims::require`, the `capability` module
+  and `CapabilityError`; `tableprims_xlsx::capabilities`,
+  `tableprims_xlsx::require` and `tableprims_xlsx::CAPABILITY`. A capability
+  a surface lacks is an error with the disposition `unsupported`, and an
+  identifier that names none is `unknown`; neither is a refusal of the
+  standard. See `docs/capabilities.md`.
+- `conformance/capabilities/v0/capabilities.json`, a suite owned by this
+  repository and kept apart from the standard's vectors: the report of each
+  surface, 18 cases and 9 near-miss identifiers that must be unknown. The
+  Go and Rust tests run every case, exercise the operation of each supported
+  capability and require a disagreement when an expectation is altered; the
+  Go test also checks the Rust-only extensions in `.fulmen/repo.yaml`
+  against it.
+
 ## [0.1.0] - 2026-11-24
 
 ### Added

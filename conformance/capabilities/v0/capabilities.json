@@ -1,0 +1,142 @@
+{
+  "suite": "tableprims-capabilities/0",
+  "description": "Which capability each implementation surface of tableprims has. Owned by this repository; not part of the Tabular Exchange Standard or its vectors.",
+  "capabilities": [
+    "read-schema",
+    "read-policy",
+    "read-rows",
+    "quantize",
+    "binary64-decision",
+    "xlsx-write"
+  ],
+  "surfaces": [
+    {
+      "surface": "go/table",
+      "report": [
+        "read-schema",
+        "read-policy",
+        "read-rows",
+        "quantize"
+      ]
+    },
+    {
+      "surface": "rust/tableprims",
+      "report": [
+        "read-schema",
+        "read-policy",
+        "read-rows",
+        "quantize",
+        "binary64-decision"
+      ]
+    },
+    {
+      "surface": "rust/tableprims-xlsx",
+      "report": [
+        "xlsx-write"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "surface": "go/table",
+      "capability": "read-schema",
+      "disposition": "supported"
+    },
+    {
+      "surface": "go/table",
+      "capability": "read-policy",
+      "disposition": "supported"
+    },
+    {
+      "surface": "go/table",
+      "capability": "read-rows",
+      "disposition": "supported"
+    },
+    {
+      "surface": "go/table",
+      "capability": "quantize",
+      "disposition": "supported"
+    },
+    {
+      "surface": "go/table",
+      "capability": "binary64-decision",
+      "disposition": "unsupported"
+    },
+    {
+      "surface": "go/table",
+      "capability": "xlsx-write",
+      "disposition": "unsupported"
+    },
+    {
+      "surface": "rust/tableprims",
+      "capability": "read-schema",
+      "disposition": "supported"
+    },
+    {
+      "surface": "rust/tableprims",
+      "capability": "read-policy",
+      "disposition": "supported"
+    },
+    {
+      "surface": "rust/tableprims",
+      "capability": "read-rows",
+      "disposition": "supported"
+    },
+    {
+      "surface": "rust/tableprims",
+      "capability": "quantize",
+      "disposition": "supported"
+    },
+    {
+      "surface": "rust/tableprims",
+      "capability": "binary64-decision",
+      "disposition": "supported"
+    },
+    {
+      "surface": "rust/tableprims",
+      "capability": "xlsx-write",
+      "disposition": "unsupported"
+    },
+    {
+      "surface": "rust/tableprims-xlsx",
+      "capability": "read-schema",
+      "disposition": "unsupported"
+    },
+    {
+      "surface": "rust/tableprims-xlsx",
+      "capability": "read-policy",
+      "disposition": "unsupported"
+    },
+    {
+      "surface": "rust/tableprims-xlsx",
+      "capability": "read-rows",
+      "disposition": "unsupported"
+    },
+    {
+      "surface": "rust/tableprims-xlsx",
+      "capability": "quantize",
+      "disposition": "unsupported"
+    },
+    {
+      "surface": "rust/tableprims-xlsx",
+      "capability": "binary64-decision",
+      "disposition": "unsupported"
+    },
+    {
+      "surface": "rust/tableprims-xlsx",
+      "capability": "xlsx-write",
+      "disposition": "supported"
+    }
+  ],
+  "unknown": [
+    "no-such-capability",
+    "",
+    "READ-SCHEMA",
+    "read-schema ",
+    "read-schema\n",
+    " read-schema",
+    "read-schema-x",
+    "read",
+    "xlsx-write\u0000"
+  ]
+}
