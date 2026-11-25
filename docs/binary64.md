@@ -4,8 +4,7 @@ Some destinations hold a number only as an IEEE 754 binary64 value: a
 spreadsheet number cell, or a DOUBLE column in a columnar format or a
 database. tableprims keeps integers and decimals exact. This page describes
 what both implementations say about an exact number as a binary64 value,
-and the rule the XLSX writer applies. This interface is on `main` and not in
-v0.1.0.
+and the rule the XLSX writer applies. This interface was added in v0.1.1.
 
 ## Facts
 

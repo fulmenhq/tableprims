@@ -7,25 +7,26 @@ Typed tabular conversion library, with a thin command-line tool named
 
 ## Status
 
-This repository is experimental; v0.1.0 is its first release. One conversion is
-implemented: `tablebolt xlsx write` writes typed rows to an XLSX workbook; see
-[docs/xlsx-write.md](docs/xlsx-write.md). Its rows, schema, policy and result
-follow the Tabular Exchange Standard, contract revision
+This repository is experimental; its latest release is v0.1.1. One conversion
+is implemented: `tablebolt xlsx write` writes typed rows to an XLSX workbook;
+see [docs/xlsx-write.md](docs/xlsx-write.md). Its rows, schema, policy and
+result follow the Tabular Exchange Standard, contract revision
 `tabular-exchange/0.1.0`, published in
 [fulmenhq/crucible](https://github.com/fulmenhq/crucible); the workbook layout
 and the members under the `tableprims` extension namespace are provisional and
 may change in a later release. Workbooks have been checked by reading them
 back with an independent parser, not by opening them in a spreadsheet
-application. A run can report its progress through the process-run contract
-of 3leaps Crucible, telemetry only, when given a runtime directory.
+application. A run can report its progress through the process-run contract of
+3leaps Crucible, telemetry only, when given a runtime directory.
 
 The library is implemented twice, in Rust and in pure Go. The Go package,
-`github.com/fulmenhq/tableprims/table`, reads the documents, values and rows;
-it does not write workbooks and has no command-line tool. See
-[docs/go.md](docs/go.md). Each implementation reports its capabilities and
-answers with an explicit error for one it lacks; see
-[docs/capabilities.md](docs/capabilities.md). This interface is on `main` and
-not in v0.1.0.
+`github.com/fulmenhq/tableprims/table`, reads the documents, values and rows
+and gives the binary64 facts of exact numbers
+([docs/binary64.md](docs/binary64.md)); it does not write workbooks and has
+no command-line tool. See [docs/go.md](docs/go.md). Each implementation
+reports its capabilities and answers with an explicit error for one it
+lacks; see
+[docs/capabilities.md](docs/capabilities.md).
 
 The tests run the standard's value, row and document vectors and its table
 schema and conversion policy fixtures, 477 of the 639 vectors and fixtures in
@@ -65,16 +66,17 @@ IPC and Parquet adapters are planned against the same typed contract.
 
 | Surface    | Package                          | Status                                |
 | ---------- | -------------------------------- | ------------------------------------- |
-| Rust       | `tableprims`                     | released (`v0.1.0`); not on crates.io |
-| Go         | `github.com/fulmenhq/tableprims` | released (`v0.1.0`)                   |
+| Rust       | `tableprims`                     | released (`v0.1.1`); not on crates.io |
+| Go         | `github.com/fulmenhq/tableprims` | released (`v0.1.1`)                   |
 | TypeScript | to be named                      | planned                               |
 | Python     | `tableprims` (PyPI)              | planned                               |
 
 Rust is the first implementation. The Go surface is a pure-Go library
 (`CGO_ENABLED=0`, standard library only) that reads documents, values and
-rows and answers to the same conformance vectors; it does not write
-workbooks. A release is a signed tag of this repository: the Go module
-resolves by that tag, and the Rust crates are not published to a registry.
+rows, answers to the same conformance vectors and gives the same binary64
+facts; it does not write workbooks. A release is a signed tag of this
+repository: the Go module resolves by that tag, and the Rust crates are not
+published to a registry.
 
 ## Development
 

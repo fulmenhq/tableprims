@@ -1,7 +1,7 @@
 # Security
 
 tableprims is experimental. Only the latest release is supported; at present
-that is 0.1.0. How the conversion treats untrusted input and dependencies is
+that is 0.1.1. How the conversion treats untrusted input and dependencies is
 recorded in
 [SecDR-0001](docs/decisions/SecDR-0001-untrusted-input-and-dependencies.md),
 and the release trust model in [docs/security/README.md](docs/security/README.md).

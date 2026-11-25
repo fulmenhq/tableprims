@@ -22,13 +22,13 @@ repository root and is released with the Rust crates under one tag, first
 | Result document, exit codes       | no  | no          | yes         |
 | Process-run telemetry             | no  | no          | yes         |
 
-The binary64 facts and the `xlsx-write/r1` eligibility are on `main` and not
-in v0.1.0; see [binary64.md](binary64.md).
+The binary64 facts and the `xlsx-write/r1` eligibility were added in v0.1.1;
+see [binary64.md](binary64.md).
 
 `table.Capabilities` lists the capabilities the package implements, and
 `table.Require` answers for any capability identifier with an explicit
 `unsupported` or `unknown` error; see [capabilities.md](capabilities.md).
-Both are on `main` and not in v0.1.0.
+Both were added in v0.1.1.
 
 There is no Go command-line tool. The Go package applies none of the rules
 of a destination: the worksheet name, the row and empty-range ceilings of
